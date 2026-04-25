@@ -37,8 +37,25 @@ def clean_noise(text):
     text = re.sub(r'<([A-Za-z0-9][^>]*\d+:\d+[^>]*)>', r'[\1]', text)
     text = KOREAN_RE.sub('', text)
     text = re.sub(r'\{.*?\}', '', text)
-    # Remove <> and decorative chars but KEEP [] for preserved scripture tags
-    text = re.sub(r'[<>"\'\u2018\u2019\(\)【】◎◯]', ' ', text)
+
+    # Strip brackets and quotes but NOT apostrophes mid-word
+    text = re.sub(r'[<>【】◎◯]', ' ', text)
+    # Only strip curly/straight quotes that are NOT between word characters
+    text = re.sub(r'(?<!\w)["\'\u2018\u2019\u201c\u201d](?!\w)', ' ', text)
+
+    # Remove empty quoted segments
+    text = re.sub(r'["\u201c\u201d]\s*[.,;:\s]*["\u201c\u201d]', ' ', text)
+    # Remove patterns like " ." ". " remnants
+    text = re.sub(r'\s*["\u201c\u201d]\s*[.,]\s*["\u201c\u201d]\s*', ' ', text)
+    # Remove isolated consecutive punctuation
+    text = re.sub(r'\s+[.,;:]+\s+[.,;:]+', ' ', text)
+    # Collapse multiple periods
+    text = re.sub(r'(\s*\.\s*){2,}', '. ', text)
+    # Remove trailing punctuation clusters
+    text = re.sub(r'([.!?])\s*[.,;:"\s]+$', r'\1', text, flags=re.MULTILINE)
+    # Remove stray punctuation not attached to words
+    text = re.sub(r'(?<!\w)[,;:]+(?!\w)', ' ', text)
+    # Collapse whitespace
     return re.sub(r'\s+', ' ', text).strip()
 
 def is_substantive(text):

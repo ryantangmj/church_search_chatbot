@@ -18,18 +18,17 @@ Usage:
     python chunk_sermons.py --query "What did the pastor say about prayer?" --collection sermons
 """
 
+import hashlib
 import re
 import json
-import uuid
 import argparse
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
-from typing import Optional
+from dataclasses import dataclass, asdict
 
 
 # ── Chunking config ────────────────────────────────────────────────────────────
 
-TARGET_CHUNK_WORDS   = 200   # aim for ~200 words per chunk
+TARGET_CHUNK_WORDS   = 512   # aim for ~200 words per chunk
 OVERLAP_WORDS        = 50    # carry over last ~50 words into next chunk
 MIN_PARAGRAPH_WORDS  = 5     # paragraphs shorter than this are merged upward
 
@@ -88,6 +87,20 @@ def parse_file(path: Path) -> dict:
             current.append(line)
     if current:
         raw_blocks.append("\n".join(current).strip())
+
+    # ── Merge orphaned scripture tags with the following paragraph ──
+    merged_blocks: list[str] = []
+    i = 0
+    while i < len(raw_blocks):
+        block = raw_blocks[i]
+        tag_only = re.match(r'^\[([^\]]+\d+:\d+[^\]]*)\]\s*$', block)
+        if tag_only and i + 1 < len(raw_blocks):
+            merged_blocks.append(block + " " + raw_blocks[i + 1])
+            i += 2
+        else:
+            merged_blocks.append(block)
+            i += 1
+    raw_blocks = merged_blocks
 
     # -- classify each block --
     in_video = False
@@ -201,7 +214,7 @@ def build_chunks(sermon: dict) -> list[Chunk]:
             extra["video_index"] = para.get("video_index", "")
 
         chunks.append(Chunk(
-            chunk_id       = str(uuid.uuid4()),
+            chunk_id       = hashlib.md5(f"{sermon['source_file']}_{chunk_index}".encode()).hexdigest(),
             date           = sermon["date"],
             title          = sermon["title"],
             chunk_index    = chunk_index,
@@ -224,7 +237,7 @@ def build_chunks(sermon: dict) -> list[Chunk]:
         if not text:
             return
         chunks.append(Chunk(
-            chunk_id       = str(uuid.uuid4()),
+            chunk_id       = hashlib.md5(f"{sermon['source_file']}_{chunk_index}".encode()).hexdigest(),
             date           = sermon["date"],
             title          = sermon["title"],
             chunk_index    = chunk_index,
