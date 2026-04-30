@@ -28,7 +28,7 @@ church_search_chatbot/
 ### 2. Install dependencies
 
 ```bash
-venv/bin/pip install fastapi uvicorn openai chromadb python-docx python-dateutil
+venv/bin/pip install fastapi uvicorn openai chromadb python-docx python-dateutil python-dotenv
 ```
 
 ### 3. Set environment variable

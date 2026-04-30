@@ -11,6 +11,9 @@ Usage:
     # Chunk and ingest all .txt files in a folder:
     python chunk_sermons.py --input ./cleaned_sermons --collection sermons
 
+    # Chunk with Qwen3 embeddings via Ollama:
+    python chunk_sermons.py --input ./cleaned_sermons --collection sermons_qwen3 --embed-model qwen3-embedding:4b
+
     # Dry run — prints chunks without writing to ChromaDB:
     python chunk_sermons.py --input ./cleaned_sermons --dry-run
 
@@ -28,7 +31,7 @@ from dataclasses import dataclass, asdict
 
 # ── Chunking config ────────────────────────────────────────────────────────────
 
-TARGET_CHUNK_WORDS   = 512   # aim for ~200 words per chunk
+TARGET_CHUNK_WORDS   = 512   # aim for ~512 words per chunk
 OVERLAP_WORDS        = 50    # carry over last ~50 words into next chunk
 MIN_PARAGRAPH_WORDS  = 5     # paragraphs shorter than this are merged upward
 
@@ -134,7 +137,7 @@ def parse_file(path: Path) -> dict:
             video_lines.append(block)
             continue
 
-        # scripture block: <Book X:Y> ...text...
+        # scripture block: [Book X:Y] ...text...
         m = SCRIPTURE_RE.match(block)
         if m:
             ref, body_text = m.group(1).strip(), m.group(2).strip()
@@ -196,11 +199,10 @@ def build_chunks(sermon: dict) -> list[Chunk]:
 
     # Separate sermon paragraphs from special blocks
     sermon_paras: list[str] = []
-    special_blocks: list[dict] = []   # scripture / video with insertion order
+    special_blocks: list[dict] = []
 
     for i, para in enumerate(paragraphs):
         if para["type"] in ("scripture", "video"):
-            # flush any accumulated sermon text first
             special_blocks.append({"at": i, "para": para})
         else:
             sermon_paras.append(para["text"])
@@ -209,16 +211,13 @@ def build_chunks(sermon: dict) -> list[Chunk]:
     for item in special_blocks:
         para = item["para"]
         chunk_type = para["type"]
-        extra = {}
-        if chunk_type == "video":
-            extra["video_index"] = para.get("video_index", "")
 
         chunks.append(Chunk(
             chunk_id       = hashlib.md5(f"{sermon['source_file']}_{chunk_index}".encode()).hexdigest(),
             date           = sermon["date"],
             title          = sermon["title"],
             chunk_index    = chunk_index,
-            total_chunks   = 0,        # filled below
+            total_chunks   = 0,
             chunk_type     = chunk_type,
             scripture_refs = [para["ref"]] if chunk_type == "scripture" else [],
             text           = para["text"],
@@ -229,7 +228,7 @@ def build_chunks(sermon: dict) -> list[Chunk]:
 
     # -- Build sliding-window sermon chunks --
     current_words: list[str] = []
-    overlap_carry: list[str] = []   # words to prepend to next chunk
+    overlap_carry: list[str] = []
 
     def flush_chunk(words: list[str]):
         nonlocal chunk_index
@@ -256,7 +255,6 @@ def build_chunks(sermon: dict) -> list[Chunk]:
 
         if len(current_words) >= TARGET_CHUNK_WORDS:
             flush_chunk(current_words)
-            # carry over overlap
             overlap_carry = current_words[-OVERLAP_WORDS:] if OVERLAP_WORDS else []
             current_words = overlap_carry.copy()
 
@@ -269,21 +267,38 @@ def build_chunks(sermon: dict) -> list[Chunk]:
     for c in chunks:
         c.total_chunks = total
 
-    # sort by chunk_index for clean ordering
     chunks.sort(key=lambda c: c.chunk_index)
 
     return chunks
 
 
+# ── Embedding function ─────────────────────────────────────────────────────────
+
+def get_embedding_function(model: str = None):
+    """Returns embedding function. None = ChromaDB default (all-MiniLM-L6-v2)."""
+    if model is None:
+        return None
+
+    from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
+    print(f"🔗  Using Ollama embedding model: {model}")
+    return OllamaEmbeddingFunction(
+        url="http://localhost:11434/api/embeddings",
+        model_name=model,
+    )
+
+
 # ── ChromaDB ingestion ──────────────────────────────────────────────────────────
 
-def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "./chroma_db"):
+def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "./chroma_db", embed_model: str = None):
     import chromadb
 
     client = chromadb.PersistentClient(path=db_path)
+    ef = get_embedding_function(embed_model)
+
     collection = client.get_or_create_collection(
         name=collection_name,
-        metadata={"hnsw:space": "cosine"},   # cosine similarity for semantic search
+        metadata={"hnsw:space": "cosine"},
+        **({"embedding_function": ef} if ef else {})
     )
 
     ids, documents, metadatas = [], [], []
@@ -301,26 +316,37 @@ def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "
             "source_file":    chunk.source_file,
         })
 
-    # Upsert in batches of 100
-    batch_size = 100
-    for i in range(0, len(ids), batch_size):
+    # ── Use smaller batch size for large/slow embedding models ──
+    batch_size = 10 if embed_model else 100
+    total = len(ids)
+
+    for i in range(0, total, batch_size):
+        batch_end = min(i + batch_size, total)
+        print(f"  Embedding batch {i+1}–{batch_end} of {total}...", end="\r")
         collection.upsert(
-            ids       = ids[i:i+batch_size],
-            documents = documents[i:i+batch_size],
-            metadatas = metadatas[i:i+batch_size],
+            ids       = ids[i:batch_end],
+            documents = documents[i:batch_end],
+            metadatas = metadatas[i:batch_end],
         )
 
-    print(f"✅  Ingested {len(chunks)} chunks into collection '{collection_name}' at {db_path}")
+    print()  # newline after progress
+    model_label = embed_model if embed_model else "default (all-MiniLM-L6-v2)"
+    print(f"✅  Ingested {len(chunks)} chunks into '{collection_name}' using {model_label}")
     return collection
 
 
 # ── Query helper ────────────────────────────────────────────────────────────────
 
-def query_collection(query: str, collection_name: str, db_path: str = "./chroma_db", n_results: int = 5):
+def query_collection(query: str, collection_name: str, db_path: str = "./chroma_db", n_results: int = 5, embed_model: str = None):
     import chromadb
 
     client = chromadb.PersistentClient(path=db_path)
-    collection = client.get_collection(collection_name)
+    ef = get_embedding_function(embed_model)
+
+    collection = client.get_collection(
+        collection_name,
+        **({"embedding_function": ef} if ef else {})
+    )
 
     results = collection.query(query_texts=[query], n_results=n_results)
 
@@ -330,7 +356,7 @@ def query_collection(query: str, collection_name: str, db_path: str = "./chroma_
         results["metadatas"][0],
         results["distances"][0],
     )):
-        score = 1 - dist   # cosine distance → similarity
+        score = 1 - dist
         print(f"\n[{i+1}] Score: {score:.3f}  |  {meta['date']} — {meta['title']}")
         print(f"     Type: {meta['chunk_type']}  |  Chunk {meta['chunk_index']+1}/{meta['total_chunks']}")
         if meta.get("scripture_refs"):
@@ -342,18 +368,19 @@ def query_collection(query: str, collection_name: str, db_path: str = "./chroma_
 
 def main():
     parser = argparse.ArgumentParser(description="Chunk sermon transcripts → ChromaDB")
-    parser.add_argument("--input",      default=".",          help="Folder containing .txt sermon files")
-    parser.add_argument("--collection", default="sermons",    help="ChromaDB collection name")
-    parser.add_argument("--db-path",    default="./chroma_db",help="Path to persist ChromaDB")
-    parser.add_argument("--dry-run",    action="store_true",  help="Print chunks, skip ChromaDB write")
-    parser.add_argument("--query",      default=None,         help="Run a query against the collection")
-    parser.add_argument("--n-results",  type=int, default=5,  help="Number of results for --query")
-    parser.add_argument("--export-json",default=None,         help="Also save chunks to a JSON file")
+    parser.add_argument("--input",       default=".",           help="Folder containing .txt sermon files")
+    parser.add_argument("--collection",  default="sermons",     help="ChromaDB collection name")
+    parser.add_argument("--db-path",     default="./chroma_db", help="Path to persist ChromaDB")
+    parser.add_argument("--embed-model", default=None,          help="Ollama embedding model e.g. qwen3-embedding:4b")
+    parser.add_argument("--dry-run",     action="store_true",   help="Print chunks, skip ChromaDB write")
+    parser.add_argument("--query",       default=None,          help="Run a query against the collection")
+    parser.add_argument("--n-results",   type=int, default=5,   help="Number of results for --query")
+    parser.add_argument("--export-json", default=None,          help="Also save chunks to a JSON file")
     args = parser.parse_args()
 
     # Query-only mode
     if args.query:
-        query_collection(args.query, args.collection, args.db_path, args.n_results)
+        query_collection(args.query, args.collection, args.db_path, args.n_results, args.embed_model)
         return
 
     # Ingest mode
@@ -372,7 +399,6 @@ def main():
         chunks   = build_chunks(sermon)
         all_chunks.extend(chunks)
 
-        # Summary
         type_counts = {}
         for c in chunks:
             type_counts[c.chunk_type] = type_counts.get(c.chunk_type, 0) + 1
@@ -391,7 +417,6 @@ def main():
 
     print(f"\n📦  Total chunks across all files: {len(all_chunks)}")
 
-    # Optional JSON export
     if args.export_json:
         out = Path(args.export_json)
         out.write_text(
@@ -400,9 +425,8 @@ def main():
         )
         print(f"💾  Chunks saved to {out}")
 
-    # ChromaDB ingestion
     if not args.dry_run:
-        ingest_to_chroma(all_chunks, args.collection, args.db_path)
+        ingest_to_chroma(all_chunks, args.collection, args.db_path, args.embed_model)
 
 
 if __name__ == "__main__":

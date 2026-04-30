@@ -4,7 +4,8 @@ Run: venv/bin/uvicorn app:app --reload --port 5000
 """
 
 import os
-from openai import OpenAI
+from openai import AsyncOpenAI
+from dotenv import load_dotenv
 import chromadb
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -31,7 +32,11 @@ def get_collection():
     return _collection
 
 # ── OpenAI client ──────────────────────────────────────────────────────────────
-openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+load_dotenv()
+api_key = os.environ.get("OPENAI_API_KEY")
+if not api_key:
+    print("⚠️ WARNING: OPENAI_API_KEY is not set. The /api/chat endpoint will fail.")
+openai_client = AsyncOpenAI(api_key=api_key)
 
 # ── Request / Response models ───────────────────────────────────────────────────
 class ChatRequest(BaseModel):
@@ -132,7 +137,7 @@ async def chat(req: ChatRequest):
     })
 
     # 4. Call OpenAI
-    response = openai_client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model      = OPENAI_MODEL,
         max_tokens = 1024,
         messages   = messages,

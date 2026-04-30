@@ -3,3 +3,4 @@ sermon_documents/
 chroma_db/
 venv/
 scrape.py
+.env
