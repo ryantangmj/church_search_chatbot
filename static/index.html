@@ -10,15 +10,15 @@
     />
     <style>
       :root {
-        --bg: #0f0e0c;
-        --surface: #1a1814;
-        --border: #2e2b24;
-        --gold: #c9a84c;
-        --gold-dim: #7a6330;
-        --text: #e8e0d0;
-        --text-dim: #8a8070;
-        --user-bg: #1e1c18;
-        --bot-bg: #161412;
+        --bg: #f8f9fa;
+        --surface: #ffffff;
+        --border: #e9ecef;
+        --accent: #3498db;
+        --accent-dim: #2980b9;
+        --text: #212529;
+        --text-dim: #6c757d;
+        --user-bg: #f0f7ff;
+        --bot-bg: #f0f7ff;
         --radius: 4px;
       }
 
@@ -36,6 +36,14 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
       }
 
       /* ── Header ── */
@@ -66,7 +74,7 @@
       .logo-cross::after {
         content: "";
         position: absolute;
-        background: var(--gold);
+        background: var(--accent);
       }
 
       .logo-cross::before {
@@ -92,480 +100,224 @@
       }
 
       .logo-text span {
-        color: var(--gold);
+        color: var(--accent);
       }
 
-      .stats {
-        font-family: "DM Mono", monospace;
-        font-size: 0.7rem;
-        color: var(--text-dim);
-        letter-spacing: 0.05em;
-      }
-
-      /* ── Tab bar ── */
-      .tabs {
+      /* ── Search Bar in Header ── */
+      .header-search {
+        flex: 1;
+        max-width: 600px;
+        margin: 0 40px;
         display: flex;
-        border-bottom: 1px solid var(--border);
-        background: var(--surface);
-        flex-shrink: 0;
+        gap: 8px;
       }
 
-      .tab {
-        padding: 10px 24px;
-        font-family: "DM Mono", monospace;
-        font-size: 0.72rem;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: var(--text-dim);
-        cursor: pointer;
-        border-bottom: 2px solid transparent;
-        transition: all 0.2s;
-        background: none;
-        border-top: none;
-        border-left: none;
-        border-right: none;
-      }
-
-      .tab:hover {
+      .header-search input {
+        flex: 1;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        padding: 10px 20px;
         color: var(--text);
+        font-family: "Cormorant Garamond", serif;
+        font-size: 1.1rem;
+        outline: none;
+        transition: border-color 0.2s;
       }
-      .tab.active {
-        color: var(--gold);
-        border-bottom-color: var(--gold);
+
+      .header-search input:focus {
+        border-color: var(--accent-dim);
+      }
+
+      .search-btn {
+        padding: 10px 20px;
+        background: var(--accent-dim);
+        border: none;
+        border-radius: 24px;
+        color: #fff;
+        font-family: "DM Mono", monospace;
+        font-size: 0.75rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      .search-btn:hover {
+        background: var(--accent);
       }
 
       /* ── Main layout ── */
       .main {
         flex: 1;
-        display: flex;
-        overflow: hidden;
-      }
-
-      /* ── Chat panel ── */
-      .chat-panel {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-      }
-
-      .messages {
-        flex: 1;
         overflow-y: auto;
-        padding: 24px 28px;
-        display: flex;
-        flex-direction: column;
-        gap: 20px;
         scrollbar-width: thin;
         scrollbar-color: var(--border) transparent;
+        scroll-behavior: smooth;
       }
 
-      .messages::-webkit-scrollbar {
-        width: 4px;
-      }
-      .messages::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      .messages::-webkit-scrollbar-thumb {
-        background: var(--border);
-        border-radius: 2px;
+      .container {
+        max-width: 800px;
+        margin: 40px auto;
+        padding: 0 24px;
       }
 
-      /* welcome state */
-      .welcome {
-        margin: auto;
+      /* ── Welcome State ── */
+      .welcome-state {
         text-align: center;
-        max-width: 480px;
-        opacity: 0;
-        animation: fadeIn 0.6s ease 0.2s forwards;
+        margin-top: 15vh;
       }
-
-      .welcome-cross {
-        width: 40px;
-        height: 40px;
-        position: relative;
-        margin: 0 auto 20px;
-      }
-
-      .welcome-cross::before,
-      .welcome-cross::after {
-        content: "";
-        position: absolute;
-        background: var(--gold-dim);
-      }
-
-      .welcome-cross::before {
-        width: 2px;
-        height: 100%;
-        left: 50%;
-        transform: translateX(-50%);
-      }
-      .welcome-cross::after {
-        width: 100%;
-        height: 2px;
-        top: 35%;
-        transform: translateY(-50%);
-      }
-
-      .welcome h2 {
-        font-size: 1.8rem;
+      .welcome-state h1 {
+        font-size: 2.5rem;
         font-weight: 300;
-        letter-spacing: 0.06em;
-        color: var(--text);
-        margin-bottom: 10px;
+        margin-bottom: 16px;
       }
-
-      .welcome p {
-        font-size: 1rem;
-        color: var(--text-dim);
-        line-height: 1.7;
-        font-style: italic;
-      }
-
       .suggestions {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
         justify-content: center;
-        margin-top: 24px;
+        margin-top: 32px;
       }
-
       .suggestion {
         padding: 8px 14px;
         border: 1px solid var(--border);
-        border-radius: var(--radius);
+        border-radius: 16px;
         font-family: "DM Mono", monospace;
-        font-size: 0.68rem;
+        font-size: 0.75rem;
         color: var(--text-dim);
         cursor: pointer;
         transition: all 0.2s;
-        text-align: left;
         background: none;
       }
-
       .suggestion:hover {
-        border-color: var(--gold-dim);
-        color: var(--gold);
+        border-color: var(--accent-dim);
+        color: var(--accent);
       }
 
-      /* message bubbles */
-      .message {
-        display: flex;
-        gap: 12px;
-        max-width: 800px;
+      /* ── AI Overview Component ── */
+      .ai-overview-card {
+        background: linear-gradient(145deg, var(--bot-bg), var(--surface));
+        border: 1px solid var(--border);
+        border-top: 2px solid var(--accent-dim);
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 32px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
         opacity: 0;
-        animation: slideUp 0.3s ease forwards;
+        animation: slideUp 0.4s ease forwards;
       }
 
-      .message.user {
-        align-self: flex-end;
-        flex-direction: row-reverse;
-      }
-      .message.bot {
-        align-self: flex-start;
-      }
-
-      .msg-avatar {
-        width: 30px;
-        height: 30px;
-        border-radius: 2px;
+      .ai-overview-header {
         display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: "DM Mono", monospace;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text);
+        margin-bottom: 16px;
+      }
+
+      .ai-overview-content {
+        font-size: 1.05rem;
+        line-height: 1.8;
+        color: var(--text);
+      }
+      .ai-overview-content strong {
+        color: var(--accent);
+      }
+
+      /* Inline citations like Google [1] */
+      .citation {
+        display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-family: "DM Mono", monospace;
-        font-size: 0.65rem;
-        flex-shrink: 0;
-        margin-top: 2px;
-      }
-
-      .message.user .msg-avatar {
-        background: var(--border);
-        color: var(--text-dim);
-      }
-
-      .message.bot .msg-avatar {
-        background: var(--gold-dim);
-        color: var(--bg);
-        font-weight: bold;
-      }
-
-      .msg-content {
-        padding: 14px 18px;
-        border-radius: var(--radius);
-        font-size: 1rem;
-        line-height: 1.75;
-        max-width: 640px;
-      }
-
-      .message.user .msg-content {
-        background: var(--user-bg);
-        border: 1px solid var(--border);
-        color: var(--text);
-      }
-
-      .message.bot .msg-content {
-        background: var(--bot-bg);
-        border: 1px solid var(--border);
-        color: var(--text);
-      }
-
-      .msg-meta {
-        font-family: "DM Mono", monospace;
-        font-size: 0.65rem;
-        color: var(--text-dim);
-        margin-top: 6px;
-        letter-spacing: 0.04em;
-      }
-
-      /* typing indicator */
-      .typing {
-        display: flex;
-        gap: 5px;
-        padding: 14px 18px;
-        background: var(--bot-bg);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        width: fit-content;
-      }
-
-      .typing span {
-        width: 6px;
-        height: 6px;
-        background: var(--gold-dim);
+        width: 20px;
+        height: 20px;
         border-radius: 50%;
-        animation: pulse 1.2s ease-in-out infinite;
-      }
-
-      .typing span:nth-child(2) {
-        animation-delay: 0.2s;
-      }
-      .typing span:nth-child(3) {
-        animation-delay: 0.4s;
-      }
-
-      /* ── Sources sidebar ── */
-      .sources-panel {
-        width: 300px;
-        border-left: 1px solid var(--border);
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        flex-shrink: 0;
-        background: var(--surface);
-      }
-
-      .sources-header {
-        padding: 14px 18px;
-        border-bottom: 1px solid var(--border);
+        background: var(--accent-dim);
+        color: #fff;
         font-family: "DM Mono", monospace;
-        font-size: 0.7rem;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: var(--text-dim);
-      }
-
-      .sources-list {
-        flex: 1;
-        overflow-y: auto;
-        padding: 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        scrollbar-width: thin;
-        scrollbar-color: var(--border) transparent;
-      }
-
-      .source-card {
-        padding: 12px;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
+        font-size: 0.65rem;
+        font-weight: bold;
+        margin: 0 4px;
+        position: relative;
+        top: -0.3em;
+        text-decoration: none;
         cursor: pointer;
-        transition: border-color 0.2s;
+        transition: background 0.2s;
+      }
+      .citation:hover {
+        background: var(--accent);
       }
 
-      .source-card:hover {
-        border-color: var(--gold-dim);
+      /* ── Organic Search Results ── */
+      .results-header {
+        font-size: 1.2rem;
+        color: var(--text);
+        margin-bottom: 16px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border);
       }
 
-      .source-card-header {
+      .search-result-item {
+        padding: 20px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+        margin-bottom: 24px;
+        opacity: 0;
+        animation: slideUp 0.3s ease forwards;
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+      }
+      .search-result-item:hover {
+        border-color: var(--accent-dim);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      }
+      .search-result-item:target {
+        border-color: var(--accent);
+        box-shadow: 0 0 12px rgba(52, 152, 219, 0.3);
+      }
+
+      .result-meta {
+        font-family: "DM Mono", monospace;
+        font-size: 0.75rem;
+        color: var(--accent-dim);
+        margin-bottom: 4px;
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        margin-bottom: 6px;
+        gap: 10px;
       }
 
-      .source-type {
-        font-family: "DM Mono", monospace;
-        font-size: 0.6rem;
-        padding: 2px 6px;
-        border-radius: 2px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-
-      .source-type.sermon {
-        background: #1a2030;
-        color: #6090d0;
-      }
-      .source-type.scripture {
-        background: #1a2518;
-        color: #50a060;
-      }
-
-      .source-score {
-        font-family: "DM Mono", monospace;
-        font-size: 0.62rem;
+      .result-meta span.score {
         color: var(--text-dim);
+        background: var(--bot-bg);
+        padding: 2px 6px;
+        border-radius: 4px;
       }
 
-      .source-title {
-        font-size: 0.82rem;
+      .result-title {
+        font-size: 1.25rem;
         font-weight: 600;
         color: var(--text);
-        margin-bottom: 3px;
-        line-height: 1.3;
-      }
-
-      .source-date {
-        font-family: "DM Mono", monospace;
-        font-size: 0.62rem;
-        color: var(--gold-dim);
         margin-bottom: 6px;
       }
 
-      .source-preview {
-        font-size: 0.78rem;
+      .result-snippet {
+        font-size: 0.95rem;
+        line-height: 1.6;
         color: var(--text-dim);
-        line-height: 1.5;
-        font-style: italic;
         display: -webkit-box;
-        -webkit-line-clamp: 3;
+        -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
       }
 
-      .sources-empty {
-        padding: 24px;
-        text-align: center;
-        color: var(--text-dim);
-        font-style: italic;
-        font-size: 0.9rem;
-      }
-
-      /* ── Search panel ── */
-      .search-panel {
-        flex: 1;
-        padding: 28px;
-        overflow-y: auto;
-        display: none;
-      }
-
-      .search-panel.active {
-        display: block;
-      }
-      .chat-panel.hidden {
-        display: none;
-      }
-
-      .search-box {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 24px;
-      }
-
-      .search-results {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-
-      .result-card {
-        padding: 18px;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        background: var(--surface);
-        opacity: 0;
-        animation: slideUp 0.3s ease forwards;
-      }
-
-      .result-card-header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 10px;
-      }
-
-      .result-body {
-        font-size: 0.95rem;
-        line-height: 1.75;
-        color: var(--text);
-      }
-
-      /* ── Input bar ── */
-      .input-bar {
-        padding: 16px 28px;
-        border-top: 1px solid var(--border);
-        display: flex;
-        gap: 10px;
-        background: var(--surface);
-        flex-shrink: 0;
-      }
-
-      input[type="text"],
-      textarea {
-        flex: 1;
-        background: var(--bg);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 12px 16px;
-        color: var(--text);
-        font-family: "Cormorant Garamond", serif;
-        font-size: 1rem;
-        outline: none;
-        transition: border-color 0.2s;
-        resize: none;
-      }
-
-      input[type="text"]:focus,
-      textarea:focus {
-        border-color: var(--gold-dim);
-      }
-
-      input[type="text"]::placeholder,
-      textarea::placeholder {
-        color: var(--text-dim);
-        font-style: italic;
-      }
-
-      button.send-btn {
-        padding: 12px 20px;
-        background: var(--gold-dim);
-        border: none;
-        border-radius: var(--radius);
-        color: var(--bg);
-        font-family: "DM Mono", monospace;
-        font-size: 0.72rem;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        cursor: pointer;
-        transition: background 0.2s;
-        flex-shrink: 0;
-      }
-
-      button.send-btn:hover {
-        background: var(--gold);
-      }
-      button.send-btn:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-      }
-
       /* ── Animations ── */
-      @keyframes fadeIn {
-        to {
-          opacity: 1;
-        }
-      }
       @keyframes slideUp {
         from {
           opacity: 0;
@@ -595,283 +347,153 @@
         <div class="logo-cross"></div>
         <div class="logo-text">Sermon <span>Search</span></div>
       </div>
-      <div class="stats" id="stats">loading...</div>
+      <div class="header-search">
+        <input
+          type="text"
+          id="searchInput"
+          placeholder="Search sermons, topics, or scriptures..."
+          onkeydown="if (event.key === 'Enter') doSearch();"
+        />
+        <button class="search-btn" onclick="doSearch()">Search</button>
+      </div>
     </header>
 
-    <div class="tabs">
-      <button class="tab active" onclick="switchTab('chat')">Chat</button>
-      <button class="tab" onclick="switchTab('search')">Search</button>
-    </div>
-
     <div class="main">
-      <!-- Chat panel -->
-      <div class="chat-panel" id="chatPanel">
-        <div class="messages" id="messages">
-          <div class="welcome" id="welcome">
-            <div class="welcome-cross"></div>
-            <h2>Sermon Search</h2>
-            <p>
-              Ask anything about the sermon messages — topics, scriptures,
-              teachings, or specific dates.
-            </p>
-            <div class="suggestions">
-              <button class="suggestion" onclick="useSuggestion(this)">
-                What does the pastor teach about prayer?
-              </button>
-              <button class="suggestion" onclick="useSuggestion(this)">
-                How should we treat people who hurt us?
-              </button>
-              <button class="suggestion" onclick="useSuggestion(this)">
-                What does it mean to take action in faith?
-              </button>
-              <button class="suggestion" onclick="useSuggestion(this)">
-                Scriptures about renewal and new creation
-              </button>
-              <button class="suggestion" onclick="useSuggestion(this)">
-                What was the sermon on March 8, 2026?
-              </button>
+      <div class="container">
+        <!-- Welcome Screen -->
+        <div class="welcome-state" id="welcomeScreen">
+          <h1>What are you looking for?</h1>
+          <div class="suggestions">
+            <button class="suggestion" onclick="useSuggestion(this)">
+              What does the pastor teach about prayer?
+            </button>
+            <button class="suggestion" onclick="useSuggestion(this)">
+              How should we treat people who hurt us?
+            </button>
+            <button class="suggestion" onclick="useSuggestion(this)">
+              Taking action in faith
+            </button>
+            <button class="suggestion" onclick="useSuggestion(this)">
+              Scriptures about renewal
+            </button>
+          </div>
+        </div>
+
+        <!-- Search Results Screen -->
+        <div id="resultsScreen" style="display: none">
+          <!-- AI Overview -->
+          <div class="ai-overview-card" id="aiOverviewCard">
+            <div class="ai-overview-header">✨ AI Overview</div>
+            <div class="ai-overview-content" id="aiOverviewContent">
+              <!-- Content injected here -->
             </div>
           </div>
-        </div>
 
-        <div class="input-bar">
-          <input
-            type="text"
-            id="chatInput"
-            placeholder="Ask about a sermon, topic, or scripture…"
-            onkeydown="
-              if (event.key === 'Enter' && !event.shiftKey) {
-                sendMessage();
-              }
-            "
-          />
-          <button class="send-btn" id="sendBtn" onclick="sendMessage()">
-            Send
-          </button>
-        </div>
-      </div>
-
-      <!-- Sources sidebar (chat mode) -->
-      <div class="sources-panel" id="sourcesPanel">
-        <div class="sources-header">Sources</div>
-        <div class="sources-list" id="sourcesList">
-          <div class="sources-empty">
-            Sources will appear here after your first question.
+          <!-- Organic Results -->
+          <div class="results-header">Sources & Documents</div>
+          <div id="organicResults">
+            <!-- Documents injected here -->
           </div>
         </div>
-      </div>
-
-      <!-- Search panel -->
-      <div class="search-panel" id="searchPanel">
-        <div class="search-box">
-          <input
-            type="text"
-            id="searchInput"
-            placeholder="Search sermon transcripts…"
-            onkeydown="
-              if (event.key === 'Enter') {
-                doSearch();
-              }
-            "
-          />
-          <button class="send-btn" onclick="doSearch()">Search</button>
-        </div>
-        <div class="search-results" id="searchResults"></div>
       </div>
     </div>
 
     <script>
       const API = ""; // same origin
-      let history = [];
+      let chatHistory = [];
       let isLoading = false;
 
-      // ── Stats ──────────────────────────────────────────────────────────────────────
-      async function loadStats() {
-        try {
-          const r = await fetch(`${API}/api/stats`);
-          const d = await r.json();
-          document.getElementById("stats").textContent =
-            `${d.total_chunks} chunks · ${d.collection}`;
-        } catch (e) {
-          document.getElementById("stats").textContent = "offline";
-        }
-      }
-      loadStats();
-
-      // ── Tab switching ──────────────────────────────────────────────────────────────
-      function switchTab(tab) {
-        document
-          .querySelectorAll(".tab")
-          .forEach((t, i) =>
-            t.classList.toggle("active", ["chat", "search"][i] === tab),
-          );
-        document
-          .getElementById("chatPanel")
-          .classList.toggle("hidden", tab !== "chat");
-        document.getElementById("sourcesPanel").style.display =
-          tab === "chat" ? "" : "none";
-        document
-          .getElementById("searchPanel")
-          .classList.toggle("active", tab === "search");
-      }
-
-      // ── Suggestions ────────────────────────────────────────────────────────────────
       function useSuggestion(el) {
-        document.getElementById("chatInput").value = el.textContent;
-        sendMessage();
+        const input = document.getElementById("searchInput");
+        input.value = el.textContent;
+        doSearch();
       }
 
-      // ── Chat ───────────────────────────────────────────────────────────────────────
-      function appendMessage(role, text) {
-        const welcome = document.getElementById("welcome");
-        if (welcome) welcome.remove();
-
-        const wrap = document.getElementById("messages");
-        const div = document.createElement("div");
-        div.className = `message ${role}`;
-
-        const avatar = role === "user" ? "YOU" : "✝";
-        div.innerHTML = `
-    <div class="msg-avatar">${avatar}</div>
-    <div>
-      <div class="msg-content">${text.replace(/\n/g, "<br>")}</div>
-    </div>`;
-        wrap.appendChild(div);
-        wrap.scrollTop = wrap.scrollHeight;
-        return div;
+      function formatAnswer(text) {
+        let html = text;
+        // Parse bold markdown **text** -> <strong>text</strong>
+        html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+        // Parse citations [1] -> <span class="citation">1</span>
+        html = html.replace(
+          /\[(\d+)\]/g,
+          '<a href="#source-$1" class="citation" title="Jump to Source $1">$1</a>',
+        );
+        // Parse linebreaks
+        html = html.replace(/\n/g, "<br>");
+        return html;
       }
 
-      function showTyping() {
-        const welcome = document.getElementById("welcome");
-        if (welcome) welcome.remove();
-
-        const wrap = document.getElementById("messages");
-        const div = document.createElement("div");
-        div.className = "message bot";
-        div.id = "typing";
-        div.innerHTML = `
-    <div class="msg-avatar">✝</div>
-    <div class="typing"><span></span><span></span><span></span></div>`;
-        wrap.appendChild(div);
-        wrap.scrollTop = wrap.scrollHeight;
-      }
-
-      function removeTyping() {
-        const t = document.getElementById("typing");
-        if (t) t.remove();
-      }
-
-      function renderSources(sources) {
-        const list = document.getElementById("sourcesList");
-        if (!sources || sources.length === 0) {
-          list.innerHTML = '<div class="sources-empty">No sources found.</div>';
-          return;
-        }
-        list.innerHTML = sources
-          .map(
-            (s, i) => `
-    <div class="source-card" style="animation-delay:${i * 0.05}s">
-      <div class="source-card-header">
-        <span class="source-type ${s.chunk_type}">${s.chunk_type}</span>
-        <span class="source-score">${(s.score * 100).toFixed(0)}%</span>
-      </div>
-      <div class="source-title">${s.title}</div>
-      <div class="source-date">${s.date}</div>
-      <div class="source-preview">${s.preview}</div>
-    </div>`,
-          )
-          .join("");
-      }
-
-      async function sendMessage() {
+      async function doSearch() {
         if (isLoading) return;
-        const input = document.getElementById("chatInput");
-        const msg = input.value.trim();
-        if (!msg) return;
+        const input = document.getElementById("searchInput");
+        const query = input.value.trim();
+        if (!query) return;
 
-        input.value = "";
         isLoading = true;
-        document.getElementById("sendBtn").disabled = true;
 
-        appendMessage("user", msg);
-        history.push({ role: "user", content: msg });
+        // Switch UI to results mode
+        document.getElementById("welcomeScreen").style.display = "none";
+        document.getElementById("resultsScreen").style.display = "block";
 
-        showTyping();
+        const aiContent = document.getElementById("aiOverviewContent");
+        const resultsList = document.getElementById("organicResults");
+
+        // Loading state
+        aiContent.innerHTML =
+          '<div style="animation: pulse 1.5s infinite; color: var(--text-dim)">Analyzing sermon transcripts to generate an overview...</div>';
+        resultsList.innerHTML =
+          '<div style="color: var(--text-dim); font-style: italic;">Fetching relevant documents...</div>';
+
+        // Add to history so follow-up conversational queries work
+        chatHistory.push({ role: "user", content: query });
 
         try {
           const res = await fetch(`${API}/api/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              message: msg,
-              history: history.slice(0, -1),
+              message: query,
+              history: chatHistory.slice(0, -1),
             }),
           });
           const data = await res.json();
-          removeTyping();
 
           if (data.error) {
-            appendMessage("bot", `Error: ${data.error}`);
+            aiContent.innerHTML = `<span style="color: #ff6b6b">Error: ${data.error}</span>`;
+            resultsList.innerHTML = "";
           } else {
-            appendMessage("bot", data.answer);
-            history.push({ role: "assistant", content: data.answer });
-            renderSources(data.sources);
+            // Format markdown & citations properly
+            aiContent.innerHTML = formatAnswer(data.answer);
+            chatHistory.push({ role: "assistant", content: data.answer });
+
+            // Render organic search results underneath
+            if (!data.sources || data.sources.length === 0) {
+              resultsList.innerHTML =
+                '<div style="color:var(--text-dim)">No documents matched your search.</div>';
+            } else {
+              resultsList.innerHTML = data.sources
+                .map(
+                  (s, i) => `
+                <div class="search-result-item" id="source-${i + 1}" style="animation-delay:${i * 0.05}s">
+                  <div class="result-meta">
+                    ${s.date} • ${s.chunk_type.toUpperCase()} 
+                    <span class="score">${(s.score * 100).toFixed(0)}% match</span>
+                  </div>
+                  <div class="result-title">[${i + 1}] ${s.title}</div>
+                  <div class="result-snippet">${s.preview}</div>
+                </div>
+              `,
+                )
+                .join("");
+            }
           }
         } catch (e) {
-          removeTyping();
-          appendMessage(
-            "bot",
-            "Sorry, I could not connect to the server. Please check that the backend is running.",
-          );
+          aiContent.innerHTML =
+            "Sorry, I could not connect to the server. Please check that the backend is running.";
+          resultsList.innerHTML = "";
         }
 
         isLoading = false;
-        document.getElementById("sendBtn").disabled = false;
-        input.focus();
-      }
-
-      // ── Raw Search ─────────────────────────────────────────────────────────────────
-      async function doSearch() {
-        const input = document.getElementById("searchInput");
-        const query = input.value.trim();
-        if (!query) return;
-
-        const results = document.getElementById("searchResults");
-        results.innerHTML =
-          '<div style="color:var(--text-dim);font-style:italic;padding:12px">Searching…</div>';
-
-        try {
-          const res = await fetch(`${API}/api/search`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query, n: 8 }),
-          });
-          const data = await res.json();
-
-          if (!data.results || data.results.length === 0) {
-            results.innerHTML =
-              '<div style="color:var(--text-dim);font-style:italic;padding:12px">No results found.</div>';
-            return;
-          }
-
-          results.innerHTML = data.results
-            .map(
-              (r, i) => `
-      <div class="result-card" style="animation-delay:${i * 0.04}s">
-        <div class="result-card-header">
-          <span class="source-type ${r.chunk_type}">${r.chunk_type}</span>
-          <span class="source-score" style="font-family:'DM Mono',monospace;font-size:0.62rem;color:var(--text-dim)">${(r.score * 100).toFixed(0)}% match</span>
-          <span style="font-family:'DM Mono',monospace;font-size:0.62rem;color:var(--gold-dim)">${r.date}</span>
-        </div>
-        <div class="source-title" style="font-size:0.95rem;margin-bottom:10px">${r.title}</div>
-        <div class="result-body">${r.text}</div>
-      </div>`,
-            )
-            .join("");
-        } catch (e) {
-          results.innerHTML =
-            '<div style="color:var(--text-dim)">Connection error.</div>';
-        }
       }
     </script>
   </body>
