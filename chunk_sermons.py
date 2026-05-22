@@ -6,7 +6,7 @@ and loads them into a local ChromaDB collection.
 
 Usage:
     # Install deps first:
-    pip install chromadb
+    pip install chromadb sentence-transformers yake-keyword
 
     # Chunk and ingest all .txt files in a folder:
     python chunk_sermons.py --input ./cleaned_sermons --collection sermons
@@ -24,16 +24,31 @@ Usage:
 import hashlib
 import re
 import json
+import os
+import chromadb
 import argparse
 from pathlib import Path
 from dataclasses import dataclass, asdict
+from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
+from typing import List
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
+try:
+    import yake
+except ImportError:
+    print("⚠️  YAKE not installed. Topic extraction will be disabled.")
+    print("   Install with: pip install yake-keyword")
+    yake = None
 
 
 # ── Chunking config ────────────────────────────────────────────────────────────
 
-TARGET_CHUNK_WORDS   = 512   # aim for ~512 words per chunk
-OVERLAP_WORDS        = 50    # carry over last ~50 words into next chunk
+TARGET_CHUNK_WORDS   = 400   # aim for ~400 words per chunk (reduced for better precision)
+OVERLAP_WORDS        = 75    # carry over last ~75 words into next chunk (increased for better context)
 MIN_PARAGRAPH_WORDS  = 5     # paragraphs shorter than this are merged upward
+SCRIPTURE_CONTEXT_WORDS = 100  # words of context to include around scripture references
 
 
 # ── Data model ─────────────────────────────────────────────────────────────────
@@ -50,6 +65,45 @@ class Chunk:
     text:            str
     word_count:      int
     source_file:     str
+    topics:          list[str]    # extracted keywords/topics
+    section_type:    str          # "intro" | "body" | "conclusion" | "unknown"
+
+
+# ── Topic Extraction ───────────────────────────────────────────────────────────
+
+def extract_topics(text: str, max_keywords: int = 5) -> List[str]:
+    """Extract key topics/keywords from text using YAKE algorithm."""
+    if not text or len(text.split()) < 20 or yake is None:
+        return []
+
+    try:
+        kw_extractor = yake.KeywordExtractor(
+            lan="en",
+            n=2,  # extract up to 2-grams
+            dedupLim=0.7,
+            top=max_keywords,
+            features=None
+        )
+        keywords = kw_extractor.extract_keywords(text)
+        # Return only the keyword strings, not the scores
+        return [kw[0] for kw in keywords]
+    except Exception as e:
+        print(f"⚠️  Topic extraction failed: {e}")
+        return []
+
+
+def detect_section_type(chunk_index: int, total_chunks: int) -> str:
+    """Heuristically determine if chunk is intro, body, or conclusion."""
+    if total_chunks <= 2:
+        return "body"
+
+    ratio = chunk_index / total_chunks
+    if ratio < 0.15:
+        return "intro"
+    elif ratio > 0.85:
+        return "conclusion"
+    else:
+        return "body"
 
 
 # ── Parsing ─────────────────────────────────────────────────────────────────────
@@ -185,11 +239,11 @@ def merge_short_paragraphs(paragraphs: list[dict]) -> list[dict]:
 
 def build_chunks(sermon: dict) -> list[Chunk]:
     """
-    Strategy:
-      - Scripture blocks  → one chunk each (type=scripture)
+    Enhanced chunking strategy:
+      - Scripture blocks  → include surrounding context for better retrieval
       - Video blocks      → one chunk each (type=video)
-      - Sermon paragraphs → sliding window of ~TARGET_CHUNK_WORDS with
-                            ~OVERLAP_WORDS carry-over between adjacent chunks
+      - Sermon paragraphs → semantic-aware sliding window that breaks at paragraph boundaries
+      - All chunks get topic extraction and section type detection
     """
     paragraphs = merge_short_paragraphs(sermon["paragraphs"])
     chunks: list[Chunk] = []
@@ -207,34 +261,87 @@ def build_chunks(sermon: dict) -> list[Chunk]:
         else:
             sermon_paras.append(para["text"])
 
-    # -- Build special chunks (scripture / video) --
+    # -- Build contextual scripture chunks --
+    # For each scripture, include surrounding sermon context
+    all_paras_text = " ".join([p["text"] for p in paragraphs if p["type"] == "sermon"])
+    all_words = all_paras_text.split()
+
     for item in special_blocks:
         para = item["para"]
         chunk_type = para["type"]
 
-        chunks.append(Chunk(
-            chunk_id       = hashlib.md5(f"{sermon['source_file']}_{chunk_index}".encode()).hexdigest(),
-            date           = sermon["date"],
-            title          = sermon["title"],
-            chunk_index    = chunk_index,
-            total_chunks   = 0,
-            chunk_type     = chunk_type,
-            scripture_refs = [para["ref"]] if chunk_type == "scripture" else [],
-            text           = para["text"],
-            word_count     = _word_count(para["text"]),
-            source_file    = sermon["source_file"],
-        ))
-        chunk_index += 1
+        if chunk_type == "scripture":
+            # Find scripture text in full sermon and extract context
+            scripture_text = para["text"]
+            try:
+                scripture_pos = all_paras_text.find(scripture_text)
+                if scripture_pos != -1:
+                    # Count words before this position
+                    words_before = all_paras_text[:scripture_pos].split()
+                    context_start = max(0, len(words_before) - SCRIPTURE_CONTEXT_WORDS // 2)
+                    context_end = min(len(all_words), len(words_before) + _word_count(scripture_text) + SCRIPTURE_CONTEXT_WORDS // 2)
 
-    # -- Build sliding-window sermon chunks --
-    current_words: list[str] = []
-    overlap_carry: list[str] = []
+                    contextual_text = " ".join(all_words[context_start:context_end])
+                else:
+                    contextual_text = scripture_text
+            except:
+                contextual_text = scripture_text
 
-    def flush_chunk(words: list[str]):
+            topics = extract_topics(contextual_text, max_keywords=3)
+
+            chunks.append(Chunk(
+                chunk_id       = hashlib.md5(f"{sermon['source_file']}_{chunk_index}".encode()).hexdigest(),
+                date           = sermon["date"],
+                title          = sermon["title"],
+                chunk_index    = chunk_index,
+                total_chunks   = 0,
+                chunk_type     = chunk_type,
+                scripture_refs = [para["ref"]],
+                text           = contextual_text,
+                word_count     = _word_count(contextual_text),
+                source_file    = sermon["source_file"],
+                topics         = topics,
+                section_type   = "body",
+            ))
+            chunk_index += 1
+
+        elif chunk_type == "video":
+            topics = extract_topics(para["text"], max_keywords=3)
+            chunks.append(Chunk(
+                chunk_id       = hashlib.md5(f"{sermon['source_file']}_{chunk_index}".encode()).hexdigest(),
+                date           = sermon["date"],
+                title          = sermon["title"],
+                chunk_index    = chunk_index,
+                total_chunks   = 0,
+                chunk_type     = chunk_type,
+                scripture_refs = [],
+                text           = para["text"],
+                word_count     = _word_count(para["text"]),
+                source_file    = sermon["source_file"],
+                topics         = topics,
+                section_type   = "body",
+            ))
+            chunk_index += 1
+
+    # -- Build semantic-aware sermon chunks --
+    # Instead of hard word count splits, try to break at paragraph boundaries
+    current_paras: list[str] = []
+    current_word_count = 0
+
+    def flush_semantic_chunk(paras: list[str], overlap_text: str = ""):
         nonlocal chunk_index
-        text = " ".join(words).strip()
-        if not text:
+        if overlap_text:
+            text = overlap_text + " " + " ".join(paras)
+        else:
+            text = " ".join(paras)
+
+        text = text.strip()
+        if not text or len(text.split()) < 20:  # Skip very small chunks
             return
+
+        topics = extract_topics(text, max_keywords=5)
+        wc = _word_count(text)
+
         chunks.append(Chunk(
             chunk_id       = hashlib.md5(f"{sermon['source_file']}_{chunk_index}".encode()).hexdigest(),
             date           = sermon["date"],
@@ -244,28 +351,42 @@ def build_chunks(sermon: dict) -> list[Chunk]:
             chunk_type     = "sermon",
             scripture_refs = scripture_refs,
             text           = text,
-            word_count     = _word_count(text),
+            word_count     = wc,
             source_file    = sermon["source_file"],
+            topics         = topics,
+            section_type   = "body",  # Will be updated later
         ))
         chunk_index += 1
 
+    overlap_text = ""
+
     for para_text in sermon_paras:
-        para_words = para_text.split()
-        current_words.extend(para_words)
+        para_wc = _word_count(para_text)
 
-        if len(current_words) >= TARGET_CHUNK_WORDS:
-            flush_chunk(current_words)
-            overlap_carry = current_words[-OVERLAP_WORDS:] if OVERLAP_WORDS else []
-            current_words = overlap_carry.copy()
+        # If adding this paragraph exceeds target, flush current chunk
+        if current_word_count + para_wc >= TARGET_CHUNK_WORDS and current_paras:
+            flush_semantic_chunk(current_paras, overlap_text)
 
-    # flush remainder
-    if current_words:
-        flush_chunk(current_words)
+            # Create overlap from last paragraph(s)
+            last_para_words = current_paras[-1].split()
+            overlap_text = " ".join(last_para_words[-OVERLAP_WORDS:]) if len(last_para_words) > OVERLAP_WORDS else current_paras[-1]
 
-    # fill in total_chunks
+            current_paras = []
+            current_word_count = 0
+
+        current_paras.append(para_text)
+        current_word_count += para_wc
+
+    # Flush remaining paragraphs
+    if current_paras:
+        flush_semantic_chunk(current_paras, overlap_text)
+
+    # Fill in total_chunks and section types
     total = len(chunks)
     for c in chunks:
         c.total_chunks = total
+        if c.section_type == "body":  # Update section type for sermon chunks
+            c.section_type = detect_section_type(c.chunk_index, total)
 
     chunks.sort(key=lambda c: c.chunk_index)
 
@@ -279,7 +400,6 @@ def get_embedding_function(model: str = None):
     if model is None:
         return None
 
-    from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
     print(f"🔗  Using Ollama embedding model: {model}")
     return OllamaEmbeddingFunction(
         url="http://localhost:11434/api/embeddings",
@@ -290,8 +410,6 @@ def get_embedding_function(model: str = None):
 # ── ChromaDB ingestion ──────────────────────────────────────────────────────────
 
 def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "./chroma_db", embed_model: str = None):
-    import chromadb
-
     client = chromadb.PersistentClient(path=db_path)
     ef = get_embedding_function(embed_model)
 
@@ -314,6 +432,8 @@ def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "
             "scripture_refs": ", ".join(chunk.scripture_refs),
             "word_count":     chunk.word_count,
             "source_file":    chunk.source_file,
+            "topics":         ", ".join(chunk.topics),
+            "section_type":   chunk.section_type,
         })
 
     # ── Use smaller batch size for large/slow embedding models ──
@@ -338,8 +458,6 @@ def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "
 # ── Query helper ────────────────────────────────────────────────────────────────
 
 def query_collection(query: str, collection_name: str, db_path: str = "./chroma_db", n_results: int = 5, embed_model: str = None):
-    import chromadb
-
     client = chromadb.PersistentClient(path=db_path)
     ef = get_embedding_function(embed_model)
 
@@ -358,9 +476,11 @@ def query_collection(query: str, collection_name: str, db_path: str = "./chroma_
     )):
         score = 1 - dist
         print(f"\n[{i+1}] Score: {score:.3f}  |  {meta['date']} — {meta['title']}")
-        print(f"     Type: {meta['chunk_type']}  |  Chunk {meta['chunk_index']+1}/{meta['total_chunks']}")
+        print(f"     Type: {meta['chunk_type']}  |  Section: {meta.get('section_type', 'unknown')}  |  Chunk {meta['chunk_index']+1}/{meta['total_chunks']}")
         if meta.get("scripture_refs"):
             print(f"     Scriptures: {meta['scripture_refs']}")
+        if meta.get("topics"):
+            print(f"     Topics: {meta['topics']}")
         print(f"     {doc[:300]}{'...' if len(doc) > 300 else ''}")
 
 
@@ -371,7 +491,7 @@ def main():
     parser.add_argument("--input",       default=".",           help="Folder containing .txt sermon files")
     parser.add_argument("--collection",  default="sermons",     help="ChromaDB collection name")
     parser.add_argument("--db-path",     default="./chroma_db", help="Path to persist ChromaDB")
-    parser.add_argument("--embed-model", default=None,          help="Ollama embedding model e.g. qwen3-embedding:4b")
+    parser.add_argument("--embed-model", default=os.getenv("EMBED_MODEL"),  help="Ollama embedding model e.g. qwen3-embedding:4b (defaults to EMBED_MODEL env var)")
     parser.add_argument("--dry-run",     action="store_true",   help="Print chunks, skip ChromaDB write")
     parser.add_argument("--query",       default=None,          help="Run a query against the collection")
     parser.add_argument("--n-results",   type=int, default=5,   help="Number of results for --query")
@@ -381,6 +501,7 @@ def main():
     # Query-only mode
     if args.query:
         query_collection(args.query, args.collection, args.db_path, args.n_results, args.embed_model)
+
         return
 
     # Ingest mode

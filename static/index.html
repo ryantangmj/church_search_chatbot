@@ -291,6 +291,7 @@
         display: flex;
         align-items: center;
         gap: 10px;
+        flex-wrap: wrap;
       }
 
       .result-meta span.score {
@@ -298,6 +299,22 @@
         background: var(--bot-bg);
         padding: 2px 6px;
         border-radius: 4px;
+      }
+
+      .result-meta .tag {
+        display: inline-block;
+        padding: 2px 8px;
+        background: var(--border);
+        color: var(--text-dim);
+        border-radius: 10px;
+        font-size: 0.7rem;
+        font-weight: 500;
+      }
+
+      .result-meta .topics {
+        color: var(--accent);
+        font-style: italic;
+        font-size: 0.7rem;
       }
 
       .result-title {
@@ -376,6 +393,12 @@
             <button class="suggestion" onclick="useSuggestion(this)">
               Scriptures about renewal
             </button>
+            <button class="suggestion" onclick="useSuggestion(this)">
+              What is sanctification?
+            </button>
+            <button class="suggestion" onclick="useSuggestion(this)">
+              Ephesians 4:22
+            </button>
           </div>
         </div>
 
@@ -438,11 +461,11 @@
         const aiContent = document.getElementById("aiOverviewContent");
         const resultsList = document.getElementById("organicResults");
 
-        // Loading state
+        // Loading state with enhanced messaging
         aiContent.innerHTML =
-          '<div style="animation: pulse 1.5s infinite; color: var(--text-dim)">Analyzing sermon transcripts to generate an overview...</div>';
+          '<div style="animation: pulse 1.5s infinite; color: var(--text-dim)">🔍 Searching sermons with hybrid retrieval...<br>📊 Re-ranking results for relevance...<br>✨ Generating AI overview...</div>';
         resultsList.innerHTML =
-          '<div style="color: var(--text-dim); font-style: italic;">Fetching relevant documents...</div>';
+          '<div style="color: var(--text-dim); font-style: italic;">Loading sources...</div>';
 
         // Add to history so follow-up conversational queries work
         chatHistory.push({ role: "user", content: query });
@@ -473,16 +496,26 @@
             } else {
               resultsList.innerHTML = data.sources
                 .map(
-                  (s, i) => `
+                  (s, i) => {
+                    const topicsHtml = s.topics
+                      ? `<span class="topics">Topics: ${s.topics}</span>`
+                      : "";
+                    const sectionTag = s.section
+                      ? `<span class="tag">${s.section}</span>`
+                      : "";
+                    return `
                 <div class="search-result-item" id="source-${i + 1}" style="animation-delay:${i * 0.05}s">
                   <div class="result-meta">
-                    ${s.date} • ${s.chunk_type.toUpperCase()} 
+                    ${s.date} • ${s.chunk_type.toUpperCase()}
+                    ${sectionTag}
                     <span class="score">${(s.score * 100).toFixed(0)}% match</span>
+                    ${topicsHtml}
                   </div>
                   <div class="result-title">[${i + 1}] ${s.title}</div>
                   <div class="result-snippet">${s.preview}</div>
                 </div>
-              `,
+              `;
+                  },
                 )
                 .join("");
             }
