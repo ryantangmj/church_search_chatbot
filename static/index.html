@@ -17,16 +17,10 @@
         --accent-dim: #2980b9;
         --text: #212529;
         --text-dim: #6c757d;
-        --user-bg: #f0f7ff;
-        --bot-bg: #f0f7ff;
         --radius: 4px;
       }
 
-      * {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
 
       body {
         background: var(--bg);
@@ -38,20 +32,15 @@
         overflow: hidden;
       }
 
-      a {
-        color: var(--accent);
-        text-decoration: none;
-      }
-      a:hover {
-        text-decoration: underline;
-      }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
 
       /* ── Header ── */
       header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 18px 28px;
+        padding: 16px 28px;
         border-bottom: 1px solid var(--border);
         flex-shrink: 0;
         background: var(--surface);
@@ -69,44 +58,32 @@
         position: relative;
         flex-shrink: 0;
       }
-
       .logo-cross::before,
       .logo-cross::after {
         content: "";
         position: absolute;
         background: var(--accent);
       }
-
       .logo-cross::before {
-        width: 2px;
-        height: 100%;
-        left: 50%;
-        transform: translateX(-50%);
+        width: 2px; height: 100%;
+        left: 50%; transform: translateX(-50%);
       }
-
       .logo-cross::after {
-        width: 100%;
-        height: 2px;
-        top: 35%;
-        transform: translateY(-50%);
+        width: 100%; height: 2px;
+        top: 35%; transform: translateY(-50%);
       }
 
       .logo-text {
-        font-size: 1.25rem;
+        font-size: 1.2rem;
         font-weight: 300;
         letter-spacing: 0.12em;
-        color: var(--text);
         text-transform: uppercase;
       }
+      .logo-text span { color: var(--accent); }
 
-      .logo-text span {
-        color: var(--accent);
-      }
-
-      /* ── Search Bar in Header ── */
       .header-search {
         flex: 1;
-        max-width: 600px;
+        max-width: 560px;
         margin: 0 40px;
         display: flex;
         gap: 8px;
@@ -117,52 +94,44 @@
         background: var(--bg);
         border: 1px solid var(--border);
         border-radius: 24px;
-        padding: 10px 20px;
+        padding: 9px 20px;
         color: var(--text);
         font-family: "Cormorant Garamond", serif;
-        font-size: 1.1rem;
+        font-size: 1.05rem;
         outline: none;
         transition: border-color 0.2s;
       }
-
-      .header-search input:focus {
-        border-color: var(--accent-dim);
-      }
+      .header-search input:focus { border-color: var(--accent-dim); }
 
       .search-btn {
-        padding: 10px 20px;
+        padding: 9px 20px;
         background: var(--accent-dim);
         border: none;
         border-radius: 24px;
         color: #fff;
         font-family: "DM Mono", monospace;
-        font-size: 0.75rem;
+        font-size: 0.72rem;
         letter-spacing: 0.08em;
         text-transform: uppercase;
         cursor: pointer;
         transition: background 0.2s;
       }
+      .search-btn:hover { background: var(--accent); }
 
-      .search-btn:hover {
-        background: var(--accent);
-      }
-
-      /* ── Main layout ── */
-      .main {
+      /* ── Welcome screen ── */
+      .main-welcome {
         flex: 1;
         overflow-y: auto;
         scrollbar-width: thin;
         scrollbar-color: var(--border) transparent;
-        scroll-behavior: smooth;
       }
 
       .container {
-        max-width: 800px;
+        max-width: 720px;
         margin: 40px auto;
         padding: 0 24px;
       }
 
-      /* ── Welcome State ── */
       .welcome-state {
         text-align: center;
         margin-top: 15vh;
@@ -190,149 +159,288 @@
         transition: all 0.2s;
         background: none;
       }
-      .suggestion:hover {
-        border-color: var(--accent-dim);
-        color: var(--accent);
+      .suggestion:hover { border-color: var(--accent-dim); color: var(--accent); }
+
+      /* ── Results: two-column layout ── */
+      .main-results {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
       }
 
-      /* ── AI Overview Component ── */
-      .ai-overview-card {
-        background: linear-gradient(145deg, var(--bot-bg), var(--surface));
+      /* ── Chat column (left) ── */
+      .chat-column {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-width: 0;
+      }
+
+      #chatMessages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 28px 32px 16px 32px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+      }
+
+      /* ── Chat bubbles ── */
+      .chat-message {
+        display: flex;
+        opacity: 0;
+        animation: slideUp 0.3s ease forwards;
+      }
+
+      .user-turn { justify-content: flex-end; }
+
+      .user-bubble {
+        background: var(--accent-dim);
+        color: #fff;
+        border-radius: 20px 20px 4px 20px;
+        padding: 11px 18px;
+        max-width: 72%;
+        font-size: 1rem;
+        line-height: 1.5;
+        word-break: break-word;
+      }
+
+      .ai-turn { justify-content: flex-start; }
+
+      .ai-bubble {
+        background: var(--surface);
         border: 1px solid var(--border);
         border-top: 2px solid var(--accent-dim);
-        border-radius: 12px;
-        padding: 24px;
-        margin-bottom: 32px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-        opacity: 0;
-        animation: slideUp 0.4s ease forwards;
-      }
-
-      .ai-overview-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-family: "DM Mono", monospace;
-        font-size: 0.85rem;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: var(--text);
-        margin-bottom: 16px;
-      }
-
-      .ai-overview-content {
+        border-radius: 4px 20px 20px 20px;
+        padding: 20px 24px;
+        max-width: 90%;
         font-size: 1.05rem;
         line-height: 1.8;
-        color: var(--text);
-      }
-      .ai-overview-content strong {
-        color: var(--accent);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+        word-break: break-word;
       }
 
-      /* Inline citations like Google [1] */
+      .ai-bubble-label {
+        font-family: "DM Mono", monospace;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-dim);
+        margin-bottom: 12px;
+      }
+
+      .ai-bubble strong { color: var(--accent); }
+
+      /* Loading dots */
+      .loading-bubble {
+        padding: 16px 22px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--text-dim);
+        animation: dotBounce 1.2s infinite;
+      }
+      .dot:nth-child(2) { animation-delay: 0.2s; }
+      .dot:nth-child(3) { animation-delay: 0.4s; }
+
+      /* Inline citations */
       .citation {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 20px;
-        height: 20px;
+        width: 19px;
+        height: 19px;
         border-radius: 50%;
         background: var(--accent-dim);
         color: #fff;
         font-family: "DM Mono", monospace;
-        font-size: 0.65rem;
+        font-size: 0.62rem;
         font-weight: bold;
-        margin: 0 4px;
+        margin: 0 3px;
         position: relative;
         top: -0.3em;
         text-decoration: none;
         cursor: pointer;
         transition: background 0.2s;
       }
-      .citation:hover {
-        background: var(--accent);
+      .citation:hover { background: var(--accent); }
+
+      /* ── Follow-up input bar ── */
+      .chat-input-area {
+        flex-shrink: 0;
+        padding: 12px 32px 18px;
+        background: var(--bg);
+        border-top: 1px solid var(--border);
       }
 
-      /* ── Organic Search Results ── */
-      .results-header {
-        font-size: 1.2rem;
-        color: var(--text);
-        margin-bottom: 16px;
-        padding-bottom: 8px;
-        border-bottom: 1px solid var(--border);
-      }
-
-      .search-result-item {
-        padding: 20px;
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        background: var(--surface);
-        margin-bottom: 24px;
-        opacity: 0;
-        animation: slideUp 0.3s ease forwards;
-        transition:
-          border-color 0.2s,
-          box-shadow 0.2s;
-      }
-      .search-result-item:hover {
-        border-color: var(--accent-dim);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      }
-      .search-result-item:target {
-        border-color: var(--accent);
-        box-shadow: 0 0 12px rgba(52, 152, 219, 0.3);
-      }
-
-      .result-meta {
-        font-family: "DM Mono", monospace;
-        font-size: 0.75rem;
-        color: var(--accent-dim);
-        margin-bottom: 4px;
+      .followup-row {
         display: flex;
         align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
+        gap: 8px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 26px;
+        padding: 8px 8px 8px 20px;
+        transition: border-color 0.2s, box-shadow 0.2s;
+      }
+      .followup-row:focus-within {
+        border-color: var(--accent-dim);
+        box-shadow: 0 2px 8px rgba(52, 152, 219, 0.12);
       }
 
+      .followup-row input {
+        flex: 1;
+        background: none;
+        border: none;
+        outline: none;
+        color: var(--text);
+        font-family: "Cormorant Garamond", serif;
+        font-size: 1rem;
+        min-width: 0;
+      }
+      .followup-row input::placeholder { color: var(--text-dim); }
+      .followup-row input:disabled { opacity: 0.5; }
 
-      .result-title {
-        font-size: 1.25rem;
+      .followup-send {
+        padding: 7px 18px;
+        background: var(--accent-dim);
+        border: none;
+        border-radius: 20px;
+        color: #fff;
+        font-family: "DM Mono", monospace;
+        font-size: 0.68rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: background 0.2s;
+        flex-shrink: 0;
+      }
+      .followup-send:hover { background: var(--accent); }
+      .followup-send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      /* ── Sources column (right) ── */
+      .sources-column {
+        width: 300px;
+        flex-shrink: 0;
+        border-left: 1px solid var(--border);
+        overflow-y: auto;
+        padding: 28px 20px;
+        background: var(--surface);
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+      }
+
+      .sources-panel-header {
+        font-family: "DM Mono", monospace;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-dim);
+        margin-bottom: 14px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--border);
+        /* flex overrides added in second block below */
+      }
+
+      .source-card {
+        padding: 12px 14px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg);
+        margin-bottom: 10px;
+        transition: border-color 0.2s, box-shadow 0.2s;
+        opacity: 0;
+        animation: slideUp 0.25s ease forwards;
+      }
+      .source-card:hover {
+        border-color: var(--accent-dim);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      }
+      .source-card:target {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.15);
+      }
+
+      .source-meta {
+        font-family: "DM Mono", monospace;
+        font-size: 0.63rem;
+        color: var(--accent-dim);
+        margin-bottom: 4px;
+      }
+      .source-title {
+        font-size: 0.95rem;
         font-weight: 600;
         color: var(--text);
-        margin-bottom: 6px;
+        margin-bottom: 5px;
+        line-height: 1.3;
       }
-
-      .result-snippet {
-        font-size: 0.95rem;
-        line-height: 1.6;
+      .source-snippet {
+        font-size: 0.8rem;
+        line-height: 1.5;
         color: var(--text-dim);
         display: -webkit-box;
-        -webkit-line-clamp: 2;
+        -webkit-line-clamp: 3;
         -webkit-box-orient: vertical;
         overflow: hidden;
       }
 
+      /* ── Source highlight + back-to-latest ── */
+      .source-card.source-highlight {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+      }
+
+      .sources-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .sources-back-btn {
+        font-family: "DM Mono", monospace;
+        font-size: 0.62rem;
+        background: var(--bg);
+        color: var(--accent-dim);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 2px 8px;
+        cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        transition: all 0.15s;
+      }
+      .sources-back-btn:hover { background: var(--accent-dim); color: #fff; border-color: var(--accent-dim); }
+
       /* ── Animations ── */
       @keyframes slideUp {
-        from {
-          opacity: 0;
-          transform: translateY(8px);
-        }
-        to {
-          opacity: 1;
-          transform: none;
-        }
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: none; }
       }
-      @keyframes pulse {
-        0%,
-        100% {
-          opacity: 0.3;
-          transform: scale(0.8);
+      @keyframes dotBounce {
+        0%, 60%, 100% { transform: translateY(0);  opacity: 0.4; }
+        30%           { transform: translateY(-5px); opacity: 1; }
+      }
+
+      /* ── Mobile: stack columns ── */
+      @media (max-width: 700px) {
+        .main-results { flex-direction: column; }
+        .sources-column {
+          width: 100%;
+          border-left: none;
+          border-top: 1px solid var(--border);
+          height: 260px;
+          padding: 16px;
         }
-        50% {
-          opacity: 1;
-          transform: scale(1);
-        }
+        #chatMessages { padding: 16px; }
+        .chat-input-area { padding: 10px 16px 14px; }
       }
     </style>
   </head>
@@ -353,99 +461,125 @@
       </div>
     </header>
 
-    <div class="main">
+    <!-- Welcome screen -->
+    <div class="main-welcome" id="mainWelcome">
       <div class="container">
-        <!-- Welcome Screen -->
-        <div class="welcome-state" id="welcomeScreen">
+        <div class="welcome-state">
           <h1>What are you looking for?</h1>
           <div class="suggestions">
-            <button class="suggestion" onclick="useSuggestion(this)">
-              What does the pastor teach about prayer?
-            </button>
-            <button class="suggestion" onclick="useSuggestion(this)">
-              How should we treat people who hurt us?
-            </button>
-            <button class="suggestion" onclick="useSuggestion(this)">
-              Taking action in faith
-            </button>
-            <button class="suggestion" onclick="useSuggestion(this)">
-              Scriptures about renewal
-            </button>
-            <button class="suggestion" onclick="useSuggestion(this)">
-              What is sanctification?
-            </button>
-            <button class="suggestion" onclick="useSuggestion(this)">
-              Ephesians 4:22
-            </button>
-          </div>
-        </div>
-
-        <!-- Search Results Screen -->
-        <div id="resultsScreen" style="display: none">
-          <!-- AI Overview -->
-          <div class="ai-overview-card" id="aiOverviewCard">
-            <div class="ai-overview-header">✨ AI Overview</div>
-            <div class="ai-overview-content" id="aiOverviewContent">
-              <!-- Content injected here -->
-            </div>
-          </div>
-
-          <!-- Organic Results -->
-          <div class="results-header">Sources & Documents</div>
-          <div id="organicResults">
-            <!-- Documents injected here -->
+            <button class="suggestion" onclick="useSuggestion(this)">What does the pastor teach about prayer?</button>
+            <button class="suggestion" onclick="useSuggestion(this)">How should we treat people who hurt us?</button>
+            <button class="suggestion" onclick="useSuggestion(this)">Taking action in faith</button>
+            <button class="suggestion" onclick="useSuggestion(this)">Scriptures about renewal</button>
+            <button class="suggestion" onclick="useSuggestion(this)">What is sanctification?</button>
+            <button class="suggestion" onclick="useSuggestion(this)">Ephesians 4:22</button>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- Results: chat (left) + sources (right) -->
+    <div class="main-results" id="mainResults" style="display: none;">
+      <!-- Left: chat thread + input -->
+      <div class="chat-column">
+        <div id="chatMessages"></div>
+        <div class="chat-input-area" id="chatInputArea" style="display: none;">
+          <div class="followup-row">
+            <input
+              type="text"
+              id="followupInput"
+              placeholder="Ask a follow-up..."
+              onkeydown="if (event.key === 'Enter') doFollowUp();"
+            />
+            <button class="followup-send" id="followupBtn" onclick="doFollowUp()">Ask</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: sources panel -->
+      <div class="sources-column">
+        <div class="sources-panel-header" id="sourcesPanelHeader"><span>Sources</span></div>
+        <div id="sourcesList"></div>
+      </div>
+    </div>
+
     <script>
-      const API = ""; // same origin
+      const API = "";
       let chatHistory = [];
       let isLoading = false;
+      let loadingMsgId = null;
+      let msgCounter = 0;
+      let latestMsgId = null;
+
+      // sessionStorage is tab-scoped and clears automatically on tab close.
+      // Clear any leftovers from a previous page load in the same tab (e.g. F5 refresh).
+      (function clearOldSession() {
+        for (const key of Object.keys(sessionStorage)) {
+          if (key.startsWith("sermon_src_")) sessionStorage.removeItem(key);
+        }
+      })();
 
       function useSuggestion(el) {
-        const input = document.getElementById("searchInput");
-        input.value = el.textContent.trim();
+        document.getElementById("searchInput").value = el.textContent.trim();
         doSearch();
       }
 
-      function formatAnswer(text) {
-        let html = text;
-        // Parse bold markdown **text** -> <strong>text</strong>
-        html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-        // Parse citations [1] -> <span class="citation">1</span>
-        html = html.replace(
-          /\[(\d+)\]/g,
-          '<a href="#source-$1" class="citation" title="Jump to Source $1">$1</a>',
-        );
-        // Parse linebreaks
-        html = html.replace(/\n/g, "<br>");
-        return html;
+      // msgId is embedded in each citation so clicking it loads the right sources.
+      function formatAnswer(text, msgId) {
+        return text
+          .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+          .replace(/\[(\d+)\]/g, (_, n) => `<a class="citation" data-mid="${msgId}" data-src="${n}" title="View source ${n}">${n}</a>`)
+          .replace(/\n/g, "<br>");
       }
 
+      function escapeHtml(str) {
+        return str
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+
+      // ── Fresh search — resets the whole conversation ──
       async function doSearch() {
         if (isLoading) return;
-        const input = document.getElementById("searchInput");
-        const query = input.value.trim();
+        const query = document.getElementById("searchInput").value.trim();
         if (!query) return;
 
+        // Clear previous session sources
+        for (const key of Object.keys(sessionStorage)) {
+          if (key.startsWith("sermon_src_")) sessionStorage.removeItem(key);
+        }
+        msgCounter = 0;
+        latestMsgId = null;
+        chatHistory = [];
+        document.getElementById("chatMessages").innerHTML = "";
+        document.getElementById("sourcesList").innerHTML = "";
+        document.getElementById("chatInputArea").style.display = "none";
+        resetSourcesHeader();
+
+        document.getElementById("mainWelcome").style.display = "none";
+        document.getElementById("mainResults").style.display = "flex";
+
+        await performQuery(query, false);
+      }
+
+      // ── Follow-up — continues the conversation ──
+      async function doFollowUp() {
+        if (isLoading) return;
+        const input = document.getElementById("followupInput");
+        const query = input.value.trim();
+        if (!query) return;
+        input.value = "";
+        await performQuery(query, true);
+      }
+
+      async function performQuery(query, isFollowUp) {
         isLoading = true;
+        setInputDisabled(true);
 
-        // Switch UI to results mode
-        document.getElementById("welcomeScreen").style.display = "none";
-        document.getElementById("resultsScreen").style.display = "block";
+        appendUserBubble(query);
+        loadingMsgId = appendLoadingBubble();
+        scrollToBottom();
 
-        const aiContent = document.getElementById("aiOverviewContent");
-        const resultsList = document.getElementById("organicResults");
-
-        // Loading state with enhanced messaging
-        aiContent.innerHTML =
-          '<div style="animation: pulse 1.5s infinite; color: var(--text-dim)">🔍 Searching sermons with hybrid retrieval...<br>📊 Re-ranking results for relevance...<br>✨ Generating AI overview...</div>';
-        resultsList.innerHTML =
-          '<div style="color: var(--text-dim); font-style: italic;">Loading sources...</div>';
-
-        // Add to history so follow-up conversational queries work
         chatHistory.push({ role: "user", content: query });
 
         try {
@@ -458,44 +592,146 @@
             }),
           });
           const data = await res.json();
+          removeLoadingBubble();
 
           if (data.error) {
-            aiContent.innerHTML = `<span style="color: #ff6b6b">Error: ${data.error}</span>`;
-            resultsList.innerHTML = "";
+            appendAIBubble(
+              `<span style="color:#e74c3c">Error: ${escapeHtml(data.error)}</span>`,
+              !isFollowUp, null
+            );
           } else {
-            // Format markdown & citations properly
-            aiContent.innerHTML = formatAnswer(data.answer);
-            chatHistory.push({ role: "assistant", content: data.answer });
+            // Assign a stable ID to this message and persist its sources
+            const msgId = "m" + (++msgCounter);
+            latestMsgId = msgId;
+            sessionStorage.setItem("sermon_src_" + msgId, JSON.stringify(data.sources || []));
 
-            // Render organic search results underneath
-            if (!data.sources || data.sources.length === 0) {
-              resultsList.innerHTML =
-                '<div style="color:var(--text-dim)">No documents matched your search.</div>';
-            } else {
-              resultsList.innerHTML = data.sources
-                .map(
-                  (s, i) => {
-                    return `
-                <div class="search-result-item" id="source-${i + 1}" style="animation-delay:${i * 0.05}s">
-                  <div class="result-meta">
-                    ${s.date} • ${s.chunk_type.toUpperCase()}
-                  </div>
-                  <div class="result-title">[${i + 1}] ${s.title}</div>
-                  <div class="result-snippet">${s.preview}</div>
-                </div>
-              `;
-                  },
-                )
-                .join("");
-            }
+            appendAIBubble(formatAnswer(data.answer, msgId), !isFollowUp, msgId);
+            chatHistory.push({ role: "assistant", content: data.answer });
+            renderSources(data.sources || [], msgId);
+            document.getElementById("chatInputArea").style.display = "block";
           }
         } catch (e) {
-          aiContent.innerHTML =
-            "Sorry, I could not connect to the server. Please check that the backend is running.";
-          resultsList.innerHTML = "";
+          removeLoadingBubble();
+          appendAIBubble("Sorry, I couldn't reach the server. Is the backend running?", !isFollowUp, null);
         }
 
         isLoading = false;
+        setInputDisabled(false);
+        scrollToBottom();
+        document.getElementById("followupInput").focus();
+      }
+
+      // Single delegated listener — handles citations in all messages, past and future.
+      document.getElementById("chatMessages").addEventListener("click", function (e) {
+        const a = e.target.closest(".citation");
+        if (a) showMsgSource(a);
+      });
+
+      // ── Citation click: load the sources for that specific message ──
+      function showMsgSource(el) {
+        const msgId = el.dataset.mid;
+        const srcNum = parseInt(el.dataset.src, 10);
+        const raw = sessionStorage.getItem("sermon_src_" + msgId);
+        if (!raw) return;
+        renderSources(JSON.parse(raw), msgId);
+        // Scroll to and briefly highlight the clicked source card
+        setTimeout(() => {
+          const card = document.getElementById("source-" + srcNum);
+          if (!card) return;
+          card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          card.classList.add("source-highlight");
+          setTimeout(() => card.classList.remove("source-highlight"), 1200);
+        }, 40);
+      }
+
+      // ── "Latest" button — jump back to the most recent message's sources ──
+      function showLatestSources() {
+        if (!latestMsgId) return;
+        const raw = sessionStorage.getItem("sermon_src_" + latestMsgId);
+        if (raw) renderSources(JSON.parse(raw), latestMsgId);
+      }
+
+      function appendUserBubble(text) {
+        const el = document.createElement("div");
+        el.className = "chat-message user-turn";
+        el.innerHTML = `<div class="user-bubble">${escapeHtml(text)}</div>`;
+        document.getElementById("chatMessages").appendChild(el);
+      }
+
+      function appendAIBubble(htmlContent, showLabel) {
+        const el = document.createElement("div");
+        el.className = "chat-message ai-turn";
+        el.innerHTML = `
+          <div class="ai-bubble">
+            ${showLabel ? '<div class="ai-bubble-label">✨ AI Overview</div>' : ""}
+            <div>${htmlContent}</div>
+          </div>`;
+        document.getElementById("chatMessages").appendChild(el);
+      }
+
+      function appendLoadingBubble() {
+        const id = "loading-" + Date.now();
+        const el = document.createElement("div");
+        el.className = "chat-message ai-turn";
+        el.id = id;
+        el.innerHTML = `
+          <div class="ai-bubble loading-bubble">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>`;
+        document.getElementById("chatMessages").appendChild(el);
+        return id;
+      }
+
+      function removeLoadingBubble() {
+        if (loadingMsgId) {
+          const el = document.getElementById(loadingMsgId);
+          if (el) el.remove();
+          loadingMsgId = null;
+        }
+      }
+
+      function renderSources(sources, msgId) {
+        const list = document.getElementById("sourcesList");
+        const header = document.getElementById("sourcesPanelHeader");
+        const isLatest = msgId === latestMsgId;
+
+        // Update header to show if we're viewing older sources
+        if (isLatest) {
+          resetSourcesHeader();
+        } else {
+          header.innerHTML = `
+            <span>Earlier sources</span>
+            <button class="sources-back-btn" onclick="showLatestSources()">Latest ↑</button>`;
+        }
+
+        if (!sources.length) {
+          list.innerHTML = '<div style="color:var(--text-dim);font-size:0.85rem;">No sources found.</div>';
+          return;
+        }
+        list.innerHTML = sources
+          .map((s, i) => `
+            <div class="source-card" id="source-${i + 1}" style="animation-delay:${i * 0.04}s">
+              <div class="source-meta">${escapeHtml(s.date)} • ${escapeHtml(s.chunk_type.toUpperCase())}</div>
+              <div class="source-title">[${i + 1}] ${escapeHtml(s.title)}</div>
+              <div class="source-snippet">${escapeHtml(s.preview)}</div>
+            </div>`)
+          .join("");
+      }
+
+      function resetSourcesHeader() {
+        document.getElementById("sourcesPanelHeader").innerHTML = "<span>Sources</span>";
+      }
+
+      function setInputDisabled(disabled) {
+        document.getElementById("followupBtn").disabled = disabled;
+        document.getElementById("followupInput").disabled = disabled;
+      }
+
+      function scrollToBottom() {
+        const el = document.getElementById("chatMessages");
+        el.scrollTop = el.scrollHeight;
       }
     </script>
   </body>

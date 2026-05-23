@@ -439,7 +439,7 @@ GUARDRAIL_MODEL = "gpt-4o-mini"
 
 GUARDRAIL_PROMPT = """You are a strict guardrail for a church sermon chatbot. Your job is to review a draft answer and ensure it is:
 1. SAFE — appropriate, respectful, and on-topic for a church congregation. Not harmful, offensive, or misleading.
-2. GROUNDED — every factual claim is directly supported by the provided sermon excerpts. No guessing, inferring, or drawing on outside knowledge.
+2. GROUNDED — every factual claim must be a direct quote or clear paraphrase of the provided sermon excerpts. Logical inferences, theological elaborations, and anything "implied by" the text are NOT grounded — they must be explicitly stated in an excerpt.
 
 You will receive:
 - The user's question
@@ -456,14 +456,7 @@ If there are problems, rewrite the answer to fix them:
 - If the answer cannot be fixed (e.g. the entire answer is ungrounded), replace it with:
   "I couldn't find reliable information on that in the sermon transcripts. Try rephrasing or using different keywords."
 
-## Output Format
-Respond with ONLY valid JSON (no markdown, no code fences):
-{
-  "safe": true or false,
-  "grounded": true or false,
-  "issues": ["brief description of each problem found, or empty list if none"],
-  "answer": "the final answer to return to the user"
-}"""
+Populate all four fields: safe, grounded, issues (empty list if none), and answer."""
 
 
 SYSTEM_PROMPT = """You are a warm, knowledgeable assistant for a church congregation.
@@ -478,7 +471,8 @@ You will be given relevant excerpts from sermon transcripts as context. Each exc
 The retrieved excerpts are your ONLY source of truth — answer strictly from them.
 
 ## Core Rules
-- Never guess, infer, or draw on knowledge outside the provided excerpts.
+- The retrieved excerpts are your ONLY source of truth. Your own theological training, biblical knowledge, and background understanding are NOT valid sources — treat them as if they do not exist.
+- A claim is only grounded if it is explicitly stated in an excerpt. Logical inferences, theological elaborations, and anything "implied by" or "consistent with" the text do not qualify.
 - If the context does not explicitly answer the question, say clearly:
   "I couldn't find specific information on that in the sermon transcripts. Try rephrasing or using different keywords."
 - Do not combine or connect excerpts unless they explicitly reference the same topic or event.
@@ -488,7 +482,7 @@ The retrieved excerpts are your ONLY source of truth — answer strictly from th
 - ALWAYS use inline citations [1], [2], etc. to reference which excerpt you're drawing from.
 - Only use citation numbers that exist in the provided sources (e.g., if given 5 sources, only use [1] through [5]).
 - Place citations immediately after the relevant statement, before punctuation.
-- Multiple citations are allowed: "The pastor taught about prayer and fasting [1][3]."
+- Multiple citations are allowed: "The pastor taught about prayer and fasting [1][3]." but try to keep it clear which source supports which claim.
 
 ## Tone & Format
 - Be warm, pastoral, and encouraging — you are speaking to congregation members.
@@ -501,18 +495,23 @@ The retrieved excerpts are your ONLY source of truth — answer strictly from th
 - For multi-part questions, address each part in order.
 - If sources conflict, note: "The sermons present different perspectives on this..."
 - If coverage is partial, say: "Based on the excerpts, here's what the pastor addressed..."
-- Prioritize SCRIPTURE-type chunks when answering biblical interpretation questions."""
+- Prioritize SERMON-type chunks when answering biblical interpretation questions."""
 
 
 # ── Guardrail ──────────────────────────────────────────────────────────────────
+
+class GuardrailResult(BaseModel):
+    safe: bool
+    grounded: bool
+    issues: List[str]
+    answer: str
+
 
 async def guardrail_check(question: str, context: str, answer: str) -> str:
     """
     Runs a fast guardrail LLM pass to verify the answer is safe and grounded.
     Returns the (possibly rewritten) answer.
     """
-    import json
-
     user_content = (
         f"USER QUESTION:\n{question}\n\n"
         f"SERMON EXCERPTS:\n{context}\n\n"
@@ -520,27 +519,69 @@ async def guardrail_check(question: str, context: str, answer: str) -> str:
     )
 
     try:
-        response = await openai_client.chat.completions.create(
+        response = await openai_client.beta.chat.completions.parse(
             model=GUARDRAIL_MODEL,
-            max_tokens=1200,
+            max_tokens=2048,
             temperature=0,
-            response_format={"type": "json_object"},
+            response_format=GuardrailResult,
             messages=[
                 {"role": "system", "content": GUARDRAIL_PROMPT},
                 {"role": "user",   "content": user_content},
             ],
         )
-        result = json.loads(response.choices[0].message.content)
+        result: GuardrailResult = response.choices[0].message.parsed
 
-        if result.get("issues"):
-            print(f"⚠️  Guardrail flagged issues: {result['issues']}")
+        if result.issues:
+            print(f"⚠️  Guardrail flagged issues: {result.issues}")
 
-        return result.get("answer", answer)
+        return result.answer
 
     except Exception as e:
         # If guardrail fails for any reason, log and pass original answer through
         print(f"⚠️  Guardrail check failed ({e}); returning original answer.")
         return answer
+
+
+# ── Query rewriter for follow-up questions ─────────────────────────────────────
+
+async def rewrite_query_for_retrieval(message: str, history: list) -> str:
+    """
+    When the user sends a follow-up, rewrite it as a standalone search query
+    using recent conversation history so retrieval stays relevant.
+    Returns the original message unchanged if there is no history.
+    """
+    if not history:
+        return message
+
+    recent = history[-4:]  # last 2 exchanges
+    history_text = "\n".join(
+        f"{h['role'].upper()}: {h['content'][:300]}" for h in recent
+    )
+
+    try:
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=80,
+            temperature=0,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You convert follow-up questions into standalone sermon database search queries. "
+                        "Output only the search query — no explanation, no punctuation beyond the query itself. "
+                        "If the question is already self-contained, return it unchanged."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Conversation so far:\n{history_text}\n\nFollow-up: {message}",
+                },
+            ],
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"⚠️  Query rewrite failed ({e}); using original message.")
+        return message
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -556,8 +597,9 @@ async def chat(req: ChatRequest):
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="Empty message")
 
-    # 1. Retrieve relevant chunks
-    chunks = retrieve_chunks(req.message)
+    # 1. Rewrite follow-up questions into standalone search queries, then retrieve
+    search_query = await rewrite_query_for_retrieval(req.message, req.history or [])
+    chunks = retrieve_chunks(search_query)
 
     if not chunks:
         return {
