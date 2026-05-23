@@ -435,6 +435,37 @@ def filter_and_renumber_citations(answer: str, chunks: list) -> tuple[str, list]
     return rewritten, cited_chunks
 
 
+GUARDRAIL_MODEL = "gpt-4o-mini"
+
+GUARDRAIL_PROMPT = """You are a strict guardrail for a church sermon chatbot. Your job is to review a draft answer and ensure it is:
+1. SAFE — appropriate, respectful, and on-topic for a church congregation. Not harmful, offensive, or misleading.
+2. GROUNDED — every factual claim is directly supported by the provided sermon excerpts. No guessing, inferring, or drawing on outside knowledge.
+
+You will receive:
+- The user's question
+- The sermon excerpts used as context (numbered [1], [2], etc.)
+- The draft answer
+
+## Your Task
+Review the draft answer carefully. If it is both safe and fully grounded, return it unchanged.
+If there are problems, rewrite the answer to fix them:
+- Remove or correct any claims not supported by the excerpts.
+- Remove any harmful, offensive, or off-topic content.
+- Keep inline citations [1], [2], etc. intact and accurate.
+- Preserve the warm, pastoral tone.
+- If the answer cannot be fixed (e.g. the entire answer is ungrounded), replace it with:
+  "I couldn't find reliable information on that in the sermon transcripts. Try rephrasing or using different keywords."
+
+## Output Format
+Respond with ONLY valid JSON (no markdown, no code fences):
+{
+  "safe": true or false,
+  "grounded": true or false,
+  "issues": ["brief description of each problem found, or empty list if none"],
+  "answer": "the final answer to return to the user"
+}"""
+
+
 SYSTEM_PROMPT = """You are a warm, knowledgeable assistant for a church congregation.
 You help members search and understand sermon messages using an advanced retrieval system.
 
@@ -471,6 +502,45 @@ The retrieved excerpts are your ONLY source of truth — answer strictly from th
 - If sources conflict, note: "The sermons present different perspectives on this..."
 - If coverage is partial, say: "Based on the excerpts, here's what the pastor addressed..."
 - Prioritize SCRIPTURE-type chunks when answering biblical interpretation questions."""
+
+
+# ── Guardrail ──────────────────────────────────────────────────────────────────
+
+async def guardrail_check(question: str, context: str, answer: str) -> str:
+    """
+    Runs a fast guardrail LLM pass to verify the answer is safe and grounded.
+    Returns the (possibly rewritten) answer.
+    """
+    import json
+
+    user_content = (
+        f"USER QUESTION:\n{question}\n\n"
+        f"SERMON EXCERPTS:\n{context}\n\n"
+        f"DRAFT ANSWER:\n{answer}"
+    )
+
+    try:
+        response = await openai_client.chat.completions.create(
+            model=GUARDRAIL_MODEL,
+            max_tokens=1200,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": GUARDRAIL_PROMPT},
+                {"role": "user",   "content": user_content},
+            ],
+        )
+        result = json.loads(response.choices[0].message.content)
+
+        if result.get("issues"):
+            print(f"⚠️  Guardrail flagged issues: {result['issues']}")
+
+        return result.get("answer", answer)
+
+    except Exception as e:
+        # If guardrail fails for any reason, log and pass original answer through
+        print(f"⚠️  Guardrail check failed ({e}); returning original answer.")
+        return answer
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -517,10 +587,13 @@ async def chat(req: ChatRequest):
 
     answer = response.choices[0].message.content
 
-    # 5. Filter to only cited sources and renumber citations sequentially
+    # 5. Guardrail: verify answer is safe and grounded in the retrieved chunks
+    answer = await guardrail_check(req.message, context, answer)
+
+    # 6. Filter to only cited sources and renumber citations sequentially
     answer, cited_chunks = filter_and_renumber_citations(answer, chunks)
 
-    # 6. Return answer + sources with enhanced metadata
+    # 7. Return answer + sources with enhanced metadata
     sources = [
         {
             "date":       c["date"],
