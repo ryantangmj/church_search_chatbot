@@ -294,28 +294,6 @@
         flex-wrap: wrap;
       }
 
-      .result-meta span.score {
-        color: var(--text-dim);
-        background: var(--bot-bg);
-        padding: 2px 6px;
-        border-radius: 4px;
-      }
-
-      .result-meta .tag {
-        display: inline-block;
-        padding: 2px 8px;
-        background: var(--border);
-        color: var(--text-dim);
-        border-radius: 10px;
-        font-size: 0.7rem;
-        font-weight: 500;
-      }
-
-      .result-meta .topics {
-        color: var(--accent);
-        font-style: italic;
-        font-size: 0.7rem;
-      }
 
       .result-title {
         font-size: 1.25rem;
@@ -428,7 +406,7 @@
 
       function useSuggestion(el) {
         const input = document.getElementById("searchInput");
-        input.value = el.textContent;
+        input.value = el.textContent.trim();
         doSearch();
       }
 
@@ -497,19 +475,10 @@
               resultsList.innerHTML = data.sources
                 .map(
                   (s, i) => {
-                    const topicsHtml = s.topics
-                      ? `<span class="topics">Topics: ${s.topics}</span>`
-                      : "";
-                    const sectionTag = s.section
-                      ? `<span class="tag">${s.section}</span>`
-                      : "";
                     return `
                 <div class="search-result-item" id="source-${i + 1}" style="animation-delay:${i * 0.05}s">
                   <div class="result-meta">
                     ${s.date} • ${s.chunk_type.toUpperCase()}
-                    ${sectionTag}
-                    <span class="score">${(s.score * 100).toFixed(0)}% match</span>
-                    ${topicsHtml}
                   </div>
                   <div class="result-title">[${i + 1}] ${s.title}</div>
                   <div class="result-snippet">${s.preview}</div>

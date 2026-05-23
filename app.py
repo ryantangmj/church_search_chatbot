@@ -4,6 +4,7 @@ Run: venv/bin/uvicorn app:app --reload --port 5000
 """
 
 import os
+import math
 import string
 import re
 from openai import AsyncOpenAI
@@ -31,8 +32,9 @@ load_dotenv(override=True)
 CHROMA_DB_PATH  = os.getenv("CHROMA_DB_PATH", "./chroma_db")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "sermons")
 EMBED_MODEL     = os.getenv("EMBED_MODEL", None)
-N_RESULTS       = 5
-OPENAI_MODEL    = "gpt-4o"
+N_RESULTS           = 5
+MIN_SEMANTIC_SCORE  = 0.25
+OPENAI_MODEL        = "gpt-4o"
 
 app = FastAPI(title="Church Sermon Chatbot")
 
@@ -336,6 +338,11 @@ def retrieve_chunks(query: str, n: int = N_RESULTS) -> list[dict]:
             "semantic_score": semantic_ranks[doc_id]["semantic_score"] if doc_id in semantic_ranks else 0.0
         }
 
+    # Filter out chunks with insufficient semantic similarity before re-ranking
+    combined = {k: v for k, v in combined.items() if v["semantic_score"] >= MIN_SEMANTIC_SCORE}
+    if not combined:
+        return []
+
     # 7. Cross-encoder re-ranking on top RRF results
     sorted_by_rrf = sorted(combined.values(), key=lambda x: x["rrf_score"], reverse=True)
     rerank_candidates = sorted_by_rrf[:pool_size // 2]  # Re-rank top half
@@ -347,11 +354,15 @@ def retrieve_chunks(query: str, n: int = N_RESULTS) -> list[dict]:
         # Get cross-encoder scores
         ce_scores = reranker.predict(pairs)
 
-        # Update scores
-        for candidate, ce_score in zip(rerank_candidates, ce_scores):
-            candidate["rerank_score"] = float(ce_score)
-            # Blend RRF and cross-encoder scores
-            candidate["final_score"] = 0.6 * ce_score + 0.4 * candidate["rrf_score"]
+        # Normalize CE scores to [0,1] via sigmoid (raw range is roughly -10 to +10).
+        # Normalize RRF scores to [0,1] via max so both are on the same scale before blending.
+        ce_normalized = [1.0 / (1.0 + math.exp(-float(s))) for s in ce_scores]
+        max_rrf = max(c["rrf_score"] for c in rerank_candidates) or 1.0
+
+        for candidate, ce_raw, ce_norm in zip(rerank_candidates, ce_scores, ce_normalized):
+            candidate["rerank_score"] = float(ce_raw)
+            rrf_norm = candidate["rrf_score"] / max_rrf
+            candidate["final_score"] = 0.6 * ce_norm + 0.4 * rrf_norm
 
         # Sort by final score
         reranked = sorted(rerank_candidates, key=lambda x: x["final_score"], reverse=True)
@@ -395,26 +406,33 @@ def build_context(chunks: list[dict]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def verify_citations(answer: str, num_sources: int) -> str:
+def filter_and_renumber_citations(answer: str, chunks: list) -> tuple[str, list]:
     """
-    Verify that citations in answer are valid (i.e., reference existing sources).
-    Remove invalid citations and warn if needed.
+    Keep only sources the LLM actually cited, renumbered sequentially.
+    E.g. if the answer uses [3][4][5], they become [1][2][3] and only
+    those three chunks are returned as sources.
     """
-    # Find all citations like [1], [2], etc.
-    citations = re.findall(r'\[(\d+)\]', answer)
+    num_sources = len(chunks)
 
-    if not citations:
-        return answer
+    # Unique valid citation numbers used in the answer, in document order
+    cited_nums = sorted({
+        int(c) for c in re.findall(r'\[(\d+)\]', answer)
+        if 1 <= int(c) <= num_sources
+    })
 
-    # Check for invalid citations
-    invalid = [int(c) for c in citations if int(c) > num_sources or int(c) < 1]
+    if not cited_nums:
+        return answer, []
 
-    if invalid:
-        # Remove invalid citations
-        for inv in invalid:
-            answer = answer.replace(f"[{inv}]", "")
+    old_to_new = {old: new for new, old in enumerate(cited_nums, start=1)}
 
-    return answer
+    def replace(m):
+        n = int(m.group(1))
+        return f"[{old_to_new[n]}]" if n in old_to_new else ""
+
+    rewritten = re.sub(r'\[(\d+)\]', replace, answer)
+    cited_chunks = [chunks[i - 1] for i in cited_nums]
+
+    return rewritten, cited_chunks
 
 
 SYSTEM_PROMPT = """You are a warm, knowledgeable assistant for a church congregation.
@@ -471,6 +489,12 @@ async def chat(req: ChatRequest):
     # 1. Retrieve relevant chunks
     chunks = retrieve_chunks(req.message)
 
+    if not chunks:
+        return {
+            "answer": "I couldn't find any relevant information in the sermon transcripts for your question. Try rephrasing or using different keywords.",
+            "sources": []
+        }
+
     # 2. Build context
     context = build_context(chunks)
 
@@ -493,8 +517,8 @@ async def chat(req: ChatRequest):
 
     answer = response.choices[0].message.content
 
-    # 5. Verify citations are valid
-    answer = verify_citations(answer, len(chunks))
+    # 5. Filter to only cited sources and renumber citations sequentially
+    answer, cited_chunks = filter_and_renumber_citations(answer, chunks)
 
     # 6. Return answer + sources with enhanced metadata
     sources = [
@@ -507,7 +531,7 @@ async def chat(req: ChatRequest):
             "topics":     c.get("topics", ""),
             "section":    c.get("section_type", ""),
         }
-        for c in chunks
+        for c in cited_chunks
     ]
 
     return {"answer": answer, "sources": sources}

@@ -262,30 +262,35 @@ def build_chunks(sermon: dict) -> list[Chunk]:
             sermon_paras.append(para["text"])
 
     # -- Build contextual scripture chunks --
-    # For each scripture, include surrounding sermon context
-    all_paras_text = " ".join([p["text"] for p in paragraphs if p["type"] == "sermon"])
-    all_words = all_paras_text.split()
-
     for item in special_blocks:
         para = item["para"]
         chunk_type = para["type"]
+        para_idx = item["at"]
 
         if chunk_type == "scripture":
-            # Find scripture text in full sermon and extract context
-            scripture_text = para["text"]
-            try:
-                scripture_pos = all_paras_text.find(scripture_text)
-                if scripture_pos != -1:
-                    # Count words before this position
-                    words_before = all_paras_text[:scripture_pos].split()
-                    context_start = max(0, len(words_before) - SCRIPTURE_CONTEXT_WORDS // 2)
-                    context_end = min(len(all_words), len(words_before) + _word_count(scripture_text) + SCRIPTURE_CONTEXT_WORDS // 2)
+            # Walk backwards/forwards through paragraphs by position to collect
+            # surrounding sermon text — substring search was used before but always
+            # failed because scripture text has a "[ref]" prefix that never appears
+            # in sermon-only paragraphs.
+            half = SCRIPTURE_CONTEXT_WORDS // 2
+            before_words: list[str] = []
+            after_words:  list[str] = []
 
-                    contextual_text = " ".join(all_words[context_start:context_end])
-                else:
-                    contextual_text = scripture_text
-            except:
-                contextual_text = scripture_text
+            for j in range(para_idx - 1, -1, -1):
+                if paragraphs[j]["type"] == "sermon":
+                    before_words = paragraphs[j]["text"].split() + before_words
+                    if len(before_words) >= half:
+                        before_words = before_words[-half:]
+                        break
+
+            for j in range(para_idx + 1, len(paragraphs)):
+                if paragraphs[j]["type"] == "sermon":
+                    after_words.extend(paragraphs[j]["text"].split())
+                    if len(after_words) >= half:
+                        after_words = after_words[:half]
+                        break
+
+            contextual_text = " ".join(before_words + [para["text"]] + after_words)
 
             topics = extract_topics(contextual_text, max_keywords=3)
 
