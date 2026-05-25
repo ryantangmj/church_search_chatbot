@@ -11,9 +11,6 @@ Usage:
     # Chunk and ingest all .txt files in a folder:
     python chunk_sermons.py --input ./cleaned_sermons --collection sermons
 
-    # Chunk with Qwen3 embeddings via Ollama:
-    python chunk_sermons.py --input ./cleaned_sermons --collection sermons_qwen3 --embed-model qwen3-embedding:4b
-
     # Dry run — prints chunks without writing to ChromaDB:
     python chunk_sermons.py --input ./cleaned_sermons --dry-run
 
@@ -29,7 +26,7 @@ import chromadb
 import argparse
 from pathlib import Path
 from dataclasses import dataclass, asdict
-from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
+from sentence_transformers import SentenceTransformer
 from typing import List
 from dotenv import load_dotenv
 
@@ -237,7 +234,7 @@ def merge_short_paragraphs(paragraphs: list[dict]) -> list[dict]:
     return merged
 
 
-def build_chunks(sermon: dict) -> list[Chunk]:
+def build_chunks(sermon: dict, doc_type: str = "sermon") -> list[Chunk]:
     """
     Enhanced chunking strategy:
       - Scripture blocks  → include surrounding context for better retrieval
@@ -300,7 +297,7 @@ def build_chunks(sermon: dict) -> list[Chunk]:
                 title          = sermon["title"],
                 chunk_index    = chunk_index,
                 total_chunks   = 0,
-                chunk_type     = chunk_type,
+                chunk_type     = doc_type if doc_type != "sermon" else chunk_type,
                 scripture_refs = [para["ref"]],
                 text           = contextual_text,
                 word_count     = _word_count(contextual_text),
@@ -353,7 +350,7 @@ def build_chunks(sermon: dict) -> list[Chunk]:
             title          = sermon["title"],
             chunk_index    = chunk_index,
             total_chunks   = 0,
-            chunk_type     = "sermon",
+            chunk_type     = doc_type,
             scripture_refs = scripture_refs,
             text           = text,
             word_count     = wc,
@@ -398,30 +395,40 @@ def build_chunks(sermon: dict) -> list[Chunk]:
     return chunks
 
 
-# ── Embedding function ─────────────────────────────────────────────────────────
+# ── Embedding Function (nomic-embed-text-v1.5) ─────────────────────────────────
+_embed_model_instance = None
 
-def get_embedding_function(model: str = None):
-    """Returns embedding function. None = ChromaDB default (all-MiniLM-L6-v2)."""
-    if model is None:
-        return None
+def _get_embed_model():
+    global _embed_model_instance
+    if _embed_model_instance is None:
+        print("⏳ Loading nomic-embed-text-v1.5...")
+        _embed_model_instance = SentenceTransformer(
+            "nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True
+        )
+        print("✅ Embedding model loaded.")
+    return _embed_model_instance
 
-    print(f"🔗  Using Ollama embedding model: {model}")
-    return OllamaEmbeddingFunction(
-        url="http://localhost:11434/api/embeddings",
-        model_name=model,
-    )
+class NomicEmbeddingFunction:
+    def name(self) -> str:
+        return "nomic-embed-text-v1.5"
+
+    def __call__(self, input: list[str]) -> list[list[float]]:
+        return _get_embed_model().encode(
+            ["search_document: " + t for t in input],
+            normalize_embeddings=True,
+            batch_size=8,
+        ).tolist()
 
 
 # ── ChromaDB ingestion ──────────────────────────────────────────────────────────
 
-def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "./chroma_db", embed_model: str = None):
+def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "./chroma_db"):
     client = chromadb.PersistentClient(path=db_path)
-    ef = get_embedding_function(embed_model)
 
     collection = client.get_or_create_collection(
         name=collection_name,
         metadata={"hnsw:space": "cosine"},
-        **({"embedding_function": ef} if ef else {})
+        embedding_function=NomicEmbeddingFunction()
     )
 
     ids, documents, metadatas = [], [], []
@@ -441,8 +448,7 @@ def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "
             "section_type":   chunk.section_type,
         })
 
-    # ── Use smaller batch size for large/slow embedding models ──
-    batch_size = 10 if embed_model else 100
+    batch_size = 16
     total = len(ids)
 
     for i in range(0, total, batch_size):
@@ -455,23 +461,21 @@ def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "
         )
 
     print()  # newline after progress
-    model_label = embed_model if embed_model else "default (all-MiniLM-L6-v2)"
-    print(f"✅  Ingested {len(chunks)} chunks into '{collection_name}' using {model_label}")
+    print(f"✅  Ingested {len(chunks)} chunks into '{collection_name}' using nomic-embed-text-v1.5")
     return collection
 
 
 # ── Query helper ────────────────────────────────────────────────────────────────
 
-def query_collection(query: str, collection_name: str, db_path: str = "./chroma_db", n_results: int = 5, embed_model: str = None):
+def query_collection(query: str, collection_name: str, db_path: str = "./chroma_db", n_results: int = 5):
     client = chromadb.PersistentClient(path=db_path)
-    ef = get_embedding_function(embed_model)
 
     collection = client.get_collection(
         collection_name,
-        **({"embedding_function": ef} if ef else {})
+        embedding_function=NomicEmbeddingFunction()
     )
 
-    results = collection.query(query_texts=[query], n_results=n_results)
+    results = collection.query(query_texts=["search_query: " + query], n_results=n_results)
 
     print(f"\n🔍  Query: {query}\n{'─'*60}")
     for i, (doc, meta, dist) in enumerate(zip(
@@ -496,7 +500,7 @@ def main():
     parser.add_argument("--input",       default=".",           help="Folder containing .txt sermon files")
     parser.add_argument("--collection",  default="sermons",     help="ChromaDB collection name")
     parser.add_argument("--db-path",     default="./chroma_db", help="Path to persist ChromaDB")
-    parser.add_argument("--embed-model", default=os.getenv("EMBED_MODEL"),  help="Ollama embedding model e.g. qwen3-embedding:4b (defaults to EMBED_MODEL env var)")
+    parser.add_argument("--doc-type",    default="sermon",      help="Chunk type label for body text: 'sermon' or 'lesson' (default: sermon)")
     parser.add_argument("--dry-run",     action="store_true",   help="Print chunks, skip ChromaDB write")
     parser.add_argument("--query",       default=None,          help="Run a query against the collection")
     parser.add_argument("--n-results",   type=int, default=5,   help="Number of results for --query")
@@ -505,7 +509,7 @@ def main():
 
     # Query-only mode
     if args.query:
-        query_collection(args.query, args.collection, args.db_path, args.n_results, args.embed_model)
+        query_collection(args.query, args.collection, args.db_path, args.n_results)
 
         return
 
@@ -522,7 +526,7 @@ def main():
     for fpath in txt_files:
         print(f"\n📄  Parsing: {fpath.name}")
         sermon   = parse_file(fpath)
-        chunks   = build_chunks(sermon)
+        chunks   = build_chunks(sermon, doc_type=args.doc_type)
         all_chunks.extend(chunks)
 
         type_counts = {}
@@ -552,7 +556,7 @@ def main():
         print(f"💾  Chunks saved to {out}")
 
     if not args.dry_run:
-        ingest_to_chroma(all_chunks, args.collection, args.db_path, args.embed_model)
+        ingest_to_chroma(all_chunks, args.collection, args.db_path)
 
 
 if __name__ == "__main__":

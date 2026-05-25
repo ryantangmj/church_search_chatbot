@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: church-chatbot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    plan: standard  # needs ~2GB RAM for nomic-embed-text + torch
+    disk:
+      name: chroma-data
+      mountPath: /data
+      sizeGB: 5
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: CHROMA_DB_PATH
+        value: /data/chroma_db
+      - key: OPENAI_API_KEY
+        sync: false  # you'll enter this manually in the dashboard

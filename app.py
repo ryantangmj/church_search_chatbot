@@ -10,6 +10,7 @@ import re
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 import chromadb
+from chromadb import EmbeddingFunction, Documents, Embeddings
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -18,12 +19,13 @@ from typing import Optional, List, Dict
 from rank_bm25 import BM25Okapi
 
 try:
-    from sentence_transformers import CrossEncoder
+    from sentence_transformers import SentenceTransformer, CrossEncoder
     CROSSENCODER_AVAILABLE = True
 except ImportError:
-    print("⚠️  sentence-transformers not installed. Re-ranking will be disabled.")
+    print("⚠️  sentence-transformers not installed. Embeddings and re-ranking will be disabled.")
     print("   Install with: pip install sentence-transformers")
     CROSSENCODER_AVAILABLE = False
+    SentenceTransformer = None
     CrossEncoder = None
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -31,28 +33,36 @@ load_dotenv(override=True)
 
 CHROMA_DB_PATH  = os.getenv("CHROMA_DB_PATH", "./chroma_db")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "sermons")
-EMBED_MODEL     = os.getenv("EMBED_MODEL", None)
 N_RESULTS           = 5
 MIN_SEMANTIC_SCORE  = 0.25
 OPENAI_MODEL        = "gpt-4o"
 
 app = FastAPI(title="Church Sermon Chatbot")
 
-# ── Embedding Function Helper ──────────────────────────────────────────────────
-def get_embedding_function(model: str = None):
-    """Returns embedding function. None = ChromaDB default (all-MiniLM-L6-v2)."""
-    if model is None:
-        print("ℹ️  Using default embedding model (all-MiniLM-L6-v2)")
-        return None
+# ── Embedding Function (nomic-embed-text-v1.5) ─────────────────────────────────
+_embed_model_instance = None
 
-    from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
-    print(f"🔗  Using Ollama embedding model: {model}")
-    return OllamaEmbeddingFunction(
-        url="http://localhost:11434/api/embeddings",
-        model_name=model,
-    )
+def _get_embed_model():
+    global _embed_model_instance
+    if _embed_model_instance is None:
+        print("⏳ Loading nomic-embed-text-v1.5...")
+        _embed_model_instance = SentenceTransformer(
+            "nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True
+        )
+        print("✅ Embedding model loaded.")
+    return _embed_model_instance
 
-embedding_function = get_embedding_function(EMBED_MODEL)
+class NomicEmbeddingFunction(EmbeddingFunction[Documents]):
+    def name(self) -> str:
+        return "nomic-embedding-function"
+
+    def __call__(self, input: Documents) -> Embeddings:
+        return _get_embed_model().encode(
+            ["search_document: " + t for t in input],
+            normalize_embeddings=True
+        ).tolist()
+
+embedding_function = NomicEmbeddingFunction()
 
 # ── ChromaDB client (lazy singleton) ───────────────────────────────────────────
 _collection = None
@@ -63,7 +73,7 @@ def get_collection():
         client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
         _collection = client.get_collection(
             name=COLLECTION_NAME,
-            **({"embedding_function": embedding_function} if embedding_function else {})
+            embedding_function=embedding_function
         )
     return _collection
 
@@ -105,19 +115,35 @@ def get_reranker():
         print("✅ Re-ranker model loaded.")
     return _reranker
 
-# ── Query Classification & Expansion ────────────────────────────────────────────
+# ── Source type filter detection ───────────────────────────────────────────────
 
-# Scripture reference patterns
-SCRIPTURE_PATTERN = re.compile(
-    r'\b(Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|'
-    r'1 Samuel|2 Samuel|1 Kings|2 Kings|1 Chronicles|2 Chronicles|Ezra|Nehemiah|Esther|Job|'
-    r'Psalms?|Proverbs?|Ecclesiastes|Song of Solomon|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|'
-    r'Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|'
-    r'Matthew|Mark|Luke|John|Acts|Romans|1 Corinthians|2 Corinthians|Galatians|Ephesians|'
-    r'Philippians|Colossians|1 Thessalonians|2 Thessalonians|1 Timothy|2 Timothy|Titus|Philemon|'
-    r'Hebrews|James|1 Peter|2 Peter|1 John|2 John|3 John|Jude|Revelation)\s+\d+[:\d\-]*',
-    re.IGNORECASE
-)
+SERMON_CHUNK_TYPES = {"sermon", "scripture"}
+LESSON_CHUNK_TYPES = {"30 lessons"}
+
+def detect_source_filter(message: str, history: list | None = None) -> dict | None:
+    """Return a ChromaDB where-filter if the message or recent history targets a specific source type."""
+    def _check(text: str) -> dict | None:
+        t = text.lower()
+        if re.search(r'\bsermon\b', t):
+            return {"chunk_type": {"$in": list(SERMON_CHUNK_TYPES)}}
+        if re.search(r'\blesson\b', t):
+            return {"chunk_type": {"$in": list(LESSON_CHUNK_TYPES)}}
+        return None
+
+    found = _check(message)
+    if found:
+        return found
+
+    # Fall back to scanning the last few history turns for a source signal
+    for turn in reversed((history or [])[-6:]):
+        content = turn.get("content", "") if isinstance(turn, dict) else ""
+        found = _check(content)
+        if found:
+            return found
+
+    return None
+
+# ── Query Classification & Expansion ────────────────────────────────────────────
 
 # Theological synonyms for query expansion
 EXPANSION_MAP = {
@@ -132,40 +158,6 @@ EXPANSION_MAP = {
     "grace": ["unmerited favor", "God's kindness", "divine favor"],
     "sanctification": ["holiness", "being made holy", "spiritual growth", "transformation"],
 }
-
-def classify_query(query: str) -> Dict[str, any]:
-    """
-    Classify query type and extract relevant features.
-    Returns: {
-        "type": "scripture" | "topical" | "general",
-        "scripture_refs": [...],
-        "is_date_query": bool,
-        "keywords": [...]
-    }
-    """
-    query_lower = query.lower()
-
-    # Check for scripture references
-    scripture_refs = SCRIPTURE_PATTERN.findall(query)
-
-    # Check for date mentions
-    date_keywords = ["date", "when", "month", "year", "2023", "2024", "2025", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
-    is_date_query = any(kw in query_lower for kw in date_keywords)
-
-    # Determine query type
-    if scripture_refs:
-        query_type = "scripture"
-    elif is_date_query:
-        query_type = "date"
-    else:
-        query_type = "topical"
-
-    return {
-        "type": query_type,
-        "scripture_refs": scripture_refs,
-        "is_date_query": is_date_query,
-        "keywords": tokenize(query)
-    }
 
 def expand_query(query: str) -> List[str]:
     """
@@ -255,7 +247,7 @@ def deduplicate_chunks(chunks: List[Dict]) -> List[Dict]:
     return deduplicated
 
 
-def retrieve_chunks(query: str, n: int = N_RESULTS) -> list[dict]:
+def retrieve_chunks(query: str, n: int = N_RESULTS, where: dict | None = None) -> list[dict]:
     """
     Enhanced retrieval with:
     - Query classification and expansion
@@ -267,19 +259,31 @@ def retrieve_chunks(query: str, n: int = N_RESULTS) -> list[dict]:
     bm25_index, bm25_docs = get_bm25_index()
     reranker = get_reranker()
 
-    # 1. Classify query
-    query_info = classify_query(query)
-
-    # 2. Expand query for better recall
+    # 1. Expand query for better recall
     query_variations = expand_query(query)
 
     # We retrieve more chunks initially for re-ranking
     pool_size = max(n * 4, 20)  # Increased pool for re-ranking
 
+    # Resolve allowed chunk types for BM25 filtering
+    allowed_types: set | None = None
+    if where:
+        ct = where.get("chunk_type", {})
+        if isinstance(ct, str):
+            allowed_types = {ct}
+        elif isinstance(ct, dict) and "$in" in ct:
+            allowed_types = set(ct["$in"])
+
     # 3. Semantic Search (ChromaDB) - search with multiple query variations
     semantic_ranks = {}
     for q_variation in query_variations:
-        results = collection.query(query_texts=[q_variation], n_results=pool_size // len(query_variations))
+        query_kwargs = {
+            "query_texts": ["search_query: " + q_variation],
+            "n_results": pool_size // len(query_variations),
+        }
+        if where:
+            query_kwargs["where"] = where
+        results = collection.query(**query_kwargs)
         for rank, (doc_id, doc, meta, dist) in enumerate(zip(
             results["ids"][0], results["documents"][0], results["metadatas"][0], results["distances"][0]
         )):
@@ -291,18 +295,15 @@ def retrieve_chunks(query: str, n: int = N_RESULTS) -> list[dict]:
                     "semantic_score": round(1 - dist, 3)
                 }
 
-    # 4. Apply query-specific boosting
-    if query_info["type"] == "scripture":
-        # Boost scripture-type chunks
-        for doc_id, data in semantic_ranks.items():
-            if data["meta"].get("chunk_type") == "scripture":
-                data["semantic_score"] = min(0.99, data["semantic_score"] * 1.15)
-
-    # 5. Lexical Search (BM25)
+    # 4. Lexical Search (BM25)
     lexical_ranks = {}
     if bm25_index:
         tokenized_query = tokenize(query)
         bm25_scores = bm25_index.get_scores(tokenized_query)
+        if allowed_types:
+            for idx, doc_info in enumerate(bm25_docs):
+                if doc_info["meta"].get("chunk_type") not in allowed_types:
+                    bm25_scores[idx] = 0.0
         top_indices = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:pool_size]
 
         for rank, idx in enumerate(top_indices):
@@ -482,7 +483,7 @@ The retrieved excerpts are your ONLY source of truth — answer strictly from th
 - ALWAYS use inline citations [1], [2], etc. to reference which excerpt you're drawing from.
 - Only use citation numbers that exist in the provided sources (e.g., if given 5 sources, only use [1] through [5]).
 - Place citations immediately after the relevant statement, before punctuation.
-- Multiple citations are allowed: "The pastor taught about prayer and fasting [1][3]." but try to keep it clear which source supports which claim.
+- Multiple citations are allowed: "The pastor taught about prayer and fasting [1][3]." but try to keep it as lean as possible, if chunk 1 already contains the relevant information no need to add chunk 3 for example.
 
 ## Tone & Format
 - Be warm, pastoral, and encouraging — you are speaking to congregation members.
@@ -495,7 +496,10 @@ The retrieved excerpts are your ONLY source of truth — answer strictly from th
 - For multi-part questions, address each part in order.
 - If sources conflict, note: "The sermons present different perspectives on this..."
 - If coverage is partial, say: "Based on the excerpts, here's what the pastor addressed..."
-- Prioritize SERMON-type chunks when answering biblical interpretation questions."""
+- Prioritize SERMON-type chunks when answering biblical interpretation questions.
+
+## Context
+- Seonsaengnim is referred to as teacher in korean and he is the head pastor of our church, the sermons are given by him and when referring to the pastor, you can call him "Seongsaengim" or "the teacher"."""
 
 
 # ── Guardrail ──────────────────────────────────────────────────────────────────
@@ -599,7 +603,8 @@ async def chat(req: ChatRequest):
 
     # 1. Rewrite follow-up questions into standalone search queries, then retrieve
     search_query = await rewrite_query_for_retrieval(req.message, req.history or [])
-    chunks = retrieve_chunks(search_query)
+    source_filter = detect_source_filter(req.message, req.history)
+    chunks = retrieve_chunks(search_query, where=source_filter)
 
     if not chunks:
         return {
