@@ -15,11 +15,32 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Verify secrets and HF access
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+          HF_SPACE_NAME: ${{ secrets.HF_SPACE_NAME }}
+        run: |
+          echo "HF_USERNAME set: $([ -n "$HF_USERNAME" ] && echo YES || echo NO)"
+          echo "HF_SPACE_NAME set: $([ -n "$HF_SPACE_NAME" ] && echo YES || echo NO)"
+          echo "HF_TOKEN set: $([ -n "$HF_TOKEN" ] && echo YES || echo NO)"
+          echo "Target Space: huggingface.co/spaces/$HF_USERNAME/$HF_SPACE_NAME"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $HF_TOKEN" \
+            "https://huggingface.co/api/spaces/$HF_USERNAME/$HF_SPACE_NAME")
+          echo "HF Space API response: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "ERROR: Could not reach HF Space (status $HTTP_STATUS). Check HF_TOKEN, HF_USERNAME, HF_SPACE_NAME."
+            exit 1
+          fi
+
       - name: Push to HF Spaces
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+          HF_SPACE_NAME: ${{ secrets.HF_SPACE_NAME }}
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
-          git remote add hf https://user:$HF_TOKEN@huggingface.co/spaces/${{ secrets.HF_USERNAME }}/${{ secrets.HF_SPACE_NAME }}
+          git remote add hf https://user:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$HF_SPACE_NAME
           git push hf main --force
