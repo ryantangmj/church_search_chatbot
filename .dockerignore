@@ -1,0 +1,11 @@
+venv/
+chroma_db/
+__pycache__/
+*.pyc
+.env
+sermon_documents/
+cleaned_sermons/
+lesson_documents/
+cleaned_lessons/
+scripts/
+.git/

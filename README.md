@@ -1,3 +1,13 @@
+---
+title: Church Sermon Chatbot
+emoji: ⛪
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Church Sermon Search Chatbot
 
 A RAG-powered chatbot for searching and querying church sermon transcripts. Uses hybrid retrieval (semantic + BM25 + cross-encoder re-ranking) backed by ChromaDB and GPT-4o.

@@ -33,9 +33,28 @@ load_dotenv(override=True)
 
 CHROMA_DB_PATH  = os.getenv("CHROMA_DB_PATH", "./chroma_db")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "sermons")
+HF_DATASET_REPO = os.getenv("HF_DATASET_REPO", "")  # e.g. "yourname/church-chroma-db"
+HF_TOKEN        = os.getenv("HF_TOKEN", "")
 N_RESULTS           = 5
 MIN_SEMANTIC_SCORE  = 0.25
 OPENAI_MODEL        = "gpt-4o"
+
+def _ensure_chroma_db():
+    if os.path.exists(CHROMA_DB_PATH) and os.listdir(CHROMA_DB_PATH):
+        return
+    if not HF_DATASET_REPO:
+        return
+    print(f"⏳ ChromaDB not found locally, downloading from {HF_DATASET_REPO}...")
+    from huggingface_hub import snapshot_download
+    snapshot_download(
+        repo_id=HF_DATASET_REPO,
+        repo_type="dataset",
+        local_dir=CHROMA_DB_PATH,
+        token=HF_TOKEN or None,
+    )
+    print("✅ ChromaDB downloaded.")
+
+_ensure_chroma_db()
 
 app = FastAPI(title="Church Sermon Chatbot")
 
