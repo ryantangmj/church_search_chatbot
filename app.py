@@ -53,10 +53,24 @@ def _ensure_chroma_db():
         token=HF_TOKEN or None,
     )
     print("✅ ChromaDB downloaded.")
+    files = []
+    for root, _, fs in os.walk(CHROMA_DB_PATH):
+        for f in fs:
+            files.append(os.path.relpath(os.path.join(root, f), CHROMA_DB_PATH))
+    print(f"   Files in ChromaDB dir: {files}")
 
 _ensure_chroma_db()
 
-app = FastAPI(title="Church Sermon Chatbot")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(_):
+    _get_embed_model()
+    get_bm25_index()
+    get_reranker()
+    yield
+
+app = FastAPI(title="Church Sermon Chatbot", lifespan=lifespan)
 
 # ── Embedding Function (nomic-embed-text-v1.5) ─────────────────────────────────
 _embed_model_instance = None
