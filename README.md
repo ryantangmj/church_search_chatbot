@@ -132,12 +132,12 @@ API docs: **http://localhost:5000/docs**
 
 ## API Endpoints
 
-| Method | Endpoint      | Description                          |
-| ------ | ------------- | ------------------------------------ |
-| GET    | `/`           | Serves the frontend                  |
-| GET    | `/api/stats`  | Returns total chunk count            |
-| POST   | `/api/chat`   | Chat with sermon context via GPT-4o  |
-| POST   | `/api/search` | Raw semantic search, no LLM          |
+| Method | Endpoint      | Description                         |
+| ------ | ------------- | ----------------------------------- |
+| GET    | `/`           | Serves the frontend                 |
+| GET    | `/api/stats`  | Returns total chunk count           |
+| POST   | `/api/chat`   | Chat with sermon context via GPT-4o |
+| POST   | `/api/search` | Raw semantic search, no LLM         |
 
 ---
 
@@ -159,12 +159,14 @@ Each query goes through:
 ## Troubleshooting
 
 **Wrong Python being used**
+
 ```bash
 venv/bin/python --version
 venv/bin/pip list
 ```
 
 **ModuleNotFoundError (yake, sentence_transformers, etc.)**
+
 ```bash
 venv/bin/pip install sentence-transformers yake-keyword torch
 ```
@@ -172,11 +174,13 @@ venv/bin/pip install sentence-transformers yake-keyword torch
 **ChromaDB collection not found**
 
 Check that `COLLECTION_NAME` in `.env` matches what you ingested:
+
 ```bash
 venv/bin/python -c "import chromadb; c = chromadb.PersistentClient('./chroma_db'); print([col.name for col in c.list_collections()])"
 ```
 
 If missing, re-run the pipeline:
+
 ```bash
 venv/bin/python scripts/post_process_doc.py
 venv/bin/python scripts/chunk_sermons.py --input ./cleaned_sermons --collection sermons
