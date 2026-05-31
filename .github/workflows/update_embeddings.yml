@@ -1,0 +1,31 @@
+name: Update Sermon Embeddings
+
+on:
+  schedule:
+    - cron: "0 16 * * 0"  # Sunday 4pm UTC = Monday 12am SGT (Sunday sermon)
+    - cron: "0 1 * * 4"   # Thursday 1am UTC = Thursday 9am SGT (Wednesday sermon)
+  workflow_dispatch:       # Allow manual trigger from GitHub UI
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: scripts/pipeline_requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scripts/pipeline_requirements.txt
+
+      - name: Run pipeline
+        env:
+          SMF_COOKIE: ${{ secrets.SMF_COOKIE }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python scripts/pipeline.py

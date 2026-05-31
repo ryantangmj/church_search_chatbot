@@ -5,5 +5,4 @@ lesson_documents/
 chroma_db/
 venv/
 __pycache__/
-scrape.py
 .env
