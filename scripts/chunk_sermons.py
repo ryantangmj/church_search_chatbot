@@ -435,8 +435,18 @@ def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "
     for chunk in chunks:
         ids.append(chunk.chunk_id)
         documents.append(chunk.text)
+        try:
+            import datetime as _dt
+            _d = _dt.date.fromisoformat(chunk.date)
+            year_int = _d.year
+            date_numeric = _d.year * 10000 + _d.month * 100 + _d.day
+        except (ValueError, TypeError):
+            year_int = 0
+            date_numeric = 0
         metadatas.append({
             "date":           chunk.date,
+            "year":           year_int,
+            "date_numeric":   date_numeric,
             "title":          chunk.title,
             "chunk_index":    chunk.chunk_index,
             "total_chunks":   chunk.total_chunks,

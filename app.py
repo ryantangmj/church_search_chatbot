@@ -7,6 +7,8 @@ import os
 import math
 import string
 import re
+import datetime
+import calendar
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 import chromadb
@@ -35,7 +37,8 @@ CHROMA_DB_PATH  = os.getenv("CHROMA_DB_PATH", "./chroma_db")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "sermons")
 HF_DATASET_REPO = os.getenv("HF_DATASET_REPO", "")  # e.g. "yourname/church-chroma-db"
 HF_TOKEN        = os.getenv("HF_TOKEN", "")
-N_RESULTS           = 5
+N_RESULTS           = 5   # default for specific questions
+N_RESULTS_BROAD     = 10  # for year/week/month range queries
 MIN_SEMANTIC_SCORE  = 0.25
 OPENAI_MODEL        = "gpt-4o"
 
@@ -157,7 +160,7 @@ def detect_source_filter(message: str, history: list | None = None) -> dict | No
     """Return a ChromaDB where-filter if the message or recent history targets a specific source type."""
     def _check(text: str) -> dict | None:
         t = text.lower()
-        if re.search(r'\bsermon\b', t):
+        if re.search(r'\bsermon\b|\bmessage\b', t):
             return {"chunk_type": {"$in": list(SERMON_CHUNK_TYPES)}}
         if re.search(r'\blesson\b', t):
             return {"chunk_type": {"$in": list(LESSON_CHUNK_TYPES)}}
@@ -175,6 +178,176 @@ def detect_source_filter(message: str, history: list | None = None) -> dict | No
             return found
 
     return None
+
+
+def merge_where_filters(*filters) -> dict | None:
+    """Combine multiple ChromaDB where-filters with $and, flattening nested $and lists."""
+    active = [f for f in filters if f]
+    if not active:
+        return None
+    if len(active) == 1:
+        return active[0]
+    conditions = []
+    for f in active:
+        if list(f.keys()) == ["$and"]:
+            conditions.extend(f["$and"])
+        else:
+            conditions.append(f)
+    return {"$and": conditions}
+
+
+def year_filter_from_year(year: int | None) -> tuple[dict | None, str | None]:
+    """Return a ChromaDB integer-equality filter for the given year."""
+    if not year:
+        return None, None
+    return {"year": {"$eq": year}}, str(year)
+
+
+_WEEKDAY_MAP = {
+    "monday": 0, "mon": 0, "tuesday": 1, "tue": 1, "wednesday": 2, "wed": 2,
+    "thursday": 3, "thu": 3, "friday": 4, "fri": 4, "saturday": 5, "sat": 5,
+    "sunday": 6, "sun": 6,
+}
+
+# The only days services are held
+_SERVICE_WEEKDAYS = {6, 2}  # Sunday=6, Wednesday=2
+
+_MONTH_MAP = {
+    "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
+    "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7,
+    "august": 8, "aug": 8, "september": 9, "sep": 9, "sept": 9,
+    "october": 10, "oct": 10, "november": 11, "nov": 11, "december": 12, "dec": 12,
+}
+
+
+def most_recent_service_date() -> datetime.date:
+    """Return the most recent Sunday or Wednesday (today inclusive)."""
+    today = datetime.date.today()
+    for offset in range(8):
+        d = today - datetime.timedelta(days=offset)
+        if d.weekday() in _SERVICE_WEEKDAYS:
+            return d
+    return today
+
+def resolve_date_expression(expr: str | None) -> datetime.date | None:
+    """
+    Convert a raw date expression extracted by the LLM (e.g. "last sunday",
+    "may 18 2025", "2025-05-18") to a datetime.date using Python datetime math.
+    """
+    if not expr:
+        return None
+    expr_lower = expr.strip().lower()
+    today = datetime.date.today()
+
+    # Normalise aliases before matching
+    expr_lower = re.sub(r'\b(most recent|recent|latest)\b', 'last', expr_lower)
+    expr_lower = re.sub(r'\bpast\b', 'last', expr_lower)
+
+    # "last service/message/sermon" with no specific day → most recent Sunday or Wednesday
+    if re.search(r'\blast\s+(service|message|sermon)\b', expr_lower):
+        return most_recent_service_date()
+
+    # Relative: "last wednesday", "this sunday", etc.
+    m = re.match(
+        r'(last|this)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)',
+        expr_lower,
+    )
+    if m:
+        qualifier, day_name = m.group(1), m.group(2)
+        target_wd = _WEEKDAY_MAP[day_name]
+        days_since = (today.weekday() - target_wd) % 7
+        if qualifier == "last":
+            days_since = days_since or 7
+        return today - datetime.timedelta(days=days_since)
+
+    # Explicit date strings
+    for fmt in ["%Y-%m-%d", "%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y"]:
+        try:
+            return datetime.datetime.strptime(expr_lower, fmt).date()
+        except ValueError:
+            continue
+
+    # Month + day without year ("may 18") — assume current year, roll back if future
+    for fmt in ["%B %d", "%b %d"]:
+        try:
+            d = datetime.datetime.strptime(expr_lower, fmt).date().replace(year=today.year)
+            return d if d <= today else d.replace(year=today.year - 1)
+        except ValueError:
+            continue
+
+    return None
+
+
+def date_filter_from_date(d: datetime.date | None) -> tuple[dict | None, str | None]:
+    """Build a ChromaDB equality filter on the date_numeric integer field."""
+    if not d:
+        return None, None
+    date_numeric = d.year * 10000 + d.month * 100 + d.day
+    return {"date_numeric": {"$eq": date_numeric}}, d.strftime("%B %-d %Y")
+
+
+def resolve_date_range(expr: str | None) -> tuple[datetime.date, datetime.date] | None:
+    """
+    Convert a range expression to (start, end) dates. Handles:
+    - Relative weeks/months: "last week", "this month", etc.
+    - Month names with optional year: "may", "may 2023", "2023 may"
+      → defaults to most recent occurrence of that month when no year is given.
+    """
+    if not expr:
+        return None
+    t = expr.strip().lower()
+    today = datetime.date.today()
+
+    if "last week" in t:
+        last_monday = today - datetime.timedelta(days=today.weekday() + 7)
+        return last_monday, last_monday + datetime.timedelta(days=6)
+
+    if "this week" in t:
+        this_monday = today - datetime.timedelta(days=today.weekday())
+        return this_monday, today
+
+    if "last month" in t:
+        first_of_this_month = today.replace(day=1)
+        last_month_end = first_of_this_month - datetime.timedelta(days=1)
+        return last_month_end.replace(day=1), last_month_end
+
+    if "this month" in t:
+        return today.replace(day=1), today
+
+    # Month name (with optional year): "may", "may 2023", "2023 may", "february"
+    month_names = "|".join(sorted(_MONTH_MAP, key=len, reverse=True))
+    m = re.search(rf'\b({month_names})\b', t)
+    if m:
+        month_num = _MONTH_MAP[m.group(1)]
+        year_m = re.search(r'\b(\d{4})\b', t)
+        if year_m:
+            year = int(year_m.group(1))
+        else:
+            # Default to most recent occurrence: use current year unless month is in the future
+            year = today.year
+            if month_num > today.month:
+                year -= 1
+        last_day = calendar.monthrange(year, month_num)[1]
+        end = min(datetime.date(year, month_num, last_day), today)
+        return datetime.date(year, month_num, 1), end
+
+    return None
+
+
+def date_range_filter(start: datetime.date, end: datetime.date) -> tuple[dict, str]:
+    """Build a ChromaDB $and range filter on date_numeric."""
+    start_num = start.year * 10000 + start.month * 100 + start.day
+    end_num   = end.year   * 10000 + end.month   * 100 + end.day
+    flt = {"$and": [
+        {"date_numeric": {"$gte": start_num}},
+        {"date_numeric": {"$lte": end_num}},
+    ]}
+    hint = (
+        start.strftime("%B %Y")
+        if start.day == 1 and end.day == calendar.monthrange(end.year, end.month)[1]
+        else f"{start.strftime('%B %-d')} to {end.strftime('%B %-d %Y')}"
+    )
+    return flt, hint
 
 # ── Query Classification & Expansion ────────────────────────────────────────────
 
@@ -280,7 +453,32 @@ def deduplicate_chunks(chunks: List[Dict]) -> List[Dict]:
     return deduplicated
 
 
-def retrieve_chunks(query: str, n: int = N_RESULTS, where: dict | None = None) -> list[dict]:
+def retrieve_chunks(
+    query: str,
+    n: int = N_RESULTS,
+    where: dict | None = None,
+    date_filter: dict | None = None,
+    date_hint: str | None = None,
+) -> list[dict]:
+    """
+    Try date-filtered retrieval first; fall back to unfiltered if no results.
+    Year filtering is handled via `where` (ChromaDB integer equality) before this call.
+    Specific-date filtering uses `date_filter` with a fallback to unfiltered.
+    """
+    augmented_query = f"{query} {date_hint}" if date_hint else query
+
+    if date_filter:
+        combined_where = merge_where_filters(where, date_filter)
+        results = _retrieve_chunks_core(augmented_query, n, combined_where)
+        if not results:
+            results = _retrieve_chunks_core(augmented_query, n, where)
+    else:
+        results = _retrieve_chunks_core(augmented_query, n, where)
+
+    return results
+
+
+def _retrieve_chunks_core(query: str, n: int = N_RESULTS, where: dict | None = None) -> list[dict]:
     """
     Enhanced retrieval with:
     - Query classification and expansion
@@ -298,14 +496,18 @@ def retrieve_chunks(query: str, n: int = N_RESULTS, where: dict | None = None) -
     # We retrieve more chunks initially for re-ranking
     pool_size = max(n * 4, 20)  # Increased pool for re-ranking
 
-    # Resolve allowed chunk types for BM25 filtering
+    # Resolve allowed chunk types for BM25 filtering (handles flat and $and-wrapped filters)
     allowed_types: set | None = None
     if where:
-        ct = where.get("chunk_type", {})
-        if isinstance(ct, str):
-            allowed_types = {ct}
-        elif isinstance(ct, dict) and "$in" in ct:
-            allowed_types = set(ct["$in"])
+        conditions = where.get("$and", [where])
+        for condition in conditions:
+            ct = condition.get("chunk_type", {})
+            if isinstance(ct, str):
+                allowed_types = {ct}
+                break
+            elif isinstance(ct, dict) and "$in" in ct:
+                allowed_types = set(ct["$in"])
+                break
 
     # 3. Semantic Search (ChromaDB) - search with multiple query variations
     semantic_ranks = {}
@@ -487,7 +689,8 @@ If there are problems, rewrite the answer to fix them:
 - Remove any harmful, offensive, or off-topic content.
 - Keep inline citations [1], [2], etc. intact and accurate.
 - Preserve the warm, pastoral tone.
-- If the answer cannot be fixed (e.g. the entire answer is ungrounded), replace it with:
+- If the answer cites the provided excerpts with [1], [2], etc. while acknowledging it couldn't fully answer the question, treat it as grounded — it is acceptable to say what was found and note it doesn't match the request.
+- If the answer cannot be fixed (e.g. it makes specific factual claims not in any excerpt), replace it with:
   "I couldn't find reliable information on that in the sermon transcripts. Try rephrasing or using different keywords."
 
 Populate all four fields: safe, grounded, issues (empty list if none), and answer."""
@@ -496,9 +699,9 @@ Populate all four fields: safe, grounded, issues (empty list if none), and answe
 SYSTEM_PROMPT = """You are a warm, knowledgeable assistant for a church congregation.
 You help members search and understand sermon messages using an advanced retrieval system.
 
-You will be given relevant excerpts from sermon transcripts as context. Each excerpt includes:
+You will be given relevant excerpts from sermon transcripts and bible lessons as context. Each excerpt includes:
 - Date and sermon title
-- Chunk type (SERMON, SCRIPTURE, or VIDEO)
+- Chunk type (SERMON, SCRIPTURE, 30 LESSONS, or VIDEO)
 - Scripture references (if applicable)
 - Key topics extracted from the content
 
@@ -507,8 +710,8 @@ The retrieved excerpts are your ONLY source of truth — answer strictly from th
 ## Core Rules
 - The retrieved excerpts are your ONLY source of truth. Your own theological training, biblical knowledge, and background understanding are NOT valid sources — treat them as if they do not exist.
 - A claim is only grounded if it is explicitly stated in an excerpt. Logical inferences, theological elaborations, and anything "implied by" or "consistent with" the text do not qualify.
-- If the context does not explicitly answer the question, say clearly:
-  "I couldn't find specific information on that in the sermon transcripts. Try rephrasing or using different keywords."
+- If the context does not explicitly answer the question, you MUST still cite the retrieved excerpts with [1], [2], etc. and explain what they do cover. For example: "The excerpts I retrieved are from [sermon titles] [1][2], but they don't appear to cover [topic]. Try rephrasing or using different keywords."
+- Never say "I couldn't find information" without citing at least one retrieved excerpt to acknowledge what was found.
 - Do not combine or connect excerpts unless they explicitly reference the same topic or event.
 - Accuracy over completeness — an honest "I don't know" is always better than speculation.
 
@@ -532,7 +735,7 @@ The retrieved excerpts are your ONLY source of truth — answer strictly from th
 - Prioritize SERMON-type chunks when answering biblical interpretation questions.
 
 ## Context
-- Seonsaengnim is referred to as teacher in korean and he is the head pastor of our church, the sermons are given by him and when referring to the pastor, you can call him "Seongsaengim" or "the teacher"."""
+- Seonsaengnim is referred to as teacher in korean and he is the head pastor of our church, the sermons are given by him and when referring to the pastor, you can call him "Seongsaengim" or "the teacher" or "SSN"."""
 
 
 # ── Guardrail ──────────────────────────────────────────────────────────────────
@@ -579,46 +782,62 @@ async def guardrail_check(question: str, context: str, answer: str) -> str:
         return answer
 
 
-# ── Query rewriter for follow-up questions ─────────────────────────────────────
+# ── Query rewriter (structured: search query + optional date) ──────────────────
 
-async def rewrite_query_for_retrieval(message: str, history: list) -> str:
-    """
-    When the user sends a follow-up, rewrite it as a standalone search query
-    using recent conversation history so retrieval stays relevant.
-    Returns the original message unchanged if there is no history.
-    """
-    if not history:
-        return message
+class QueryRewrite(BaseModel):
+    query: str
+    date_expression: Optional[str] = None  # specific day: "last sunday", "may 18 2025"
+    date_range: Optional[str] = None       # week/month range: "last week", "this month"
+    year: Optional[int] = None             # whole year: 2026
 
-    recent = history[-4:]  # last 2 exchanges
+
+async def rewrite_query_for_retrieval(message: str, history: list) -> QueryRewrite:
+    """
+    Rewrites the user's message into a standalone search query and extracts any
+    date reference as a raw expression. Python resolves the expression to an
+    actual date so the LLM never has to do date arithmetic.
+    """
+    recent = history[-4:] if history else []
     history_text = "\n".join(
         f"{h['role'].upper()}: {h['content'][:300]}" for h in recent
+    ) if recent else "(no prior conversation)"
+
+    current_year = datetime.date.today().year
+    system_content = (
+        f"The current year is {current_year}.\n"
+        "You process user questions for a church sermon search system. "
+        "Return JSON with four mutually exclusive date fields (set at most one):\n"
+        "- `query`: standalone search query with any date/time phrase removed. "
+        "Resolve pronouns using conversation history.\n"
+        "- `date_expression`: a specific day reference — normalise 'recent/most recent/latest/past' to 'last'. "
+        "If a day of the week is named: e.g. 'recent sunday' → 'last sunday', 'most recent wednesday' → 'last wednesday'. "
+        "If no day is named but the message clearly refers to the most recent single service/sermon/message: output 'last service'. "
+        "Other examples: 'this wednesday', 'may 18', 'may 18 2025'. "
+        "Use for single-day references only.\n"
+        "- `date_range`: a multi-day range reference — copy verbatim in lowercase. "
+        "Covers relative spans ('last week', 'this week', 'last month', 'this month') "
+        "AND bare month names with optional year ('may', 'february', 'may 2023', '2023 may'). "
+        "When a month name has no year, copy it as-is ('may', 'february'); Python will default to the most recent occurrence.\n"
+        f"- `year`: an entire-year reference — return as integer "
+        f"(e.g. 'this year' → {current_year}, 'last year' → {current_year - 1}, '2024 sermons' → 2024). "
+        "Only set one of the four fields; set the rest to null."
     )
 
     try:
-        response = await openai_client.chat.completions.create(
+        response = await openai_client.beta.chat.completions.parse(
             model="gpt-4o-mini",
-            max_tokens=80,
+            max_tokens=120,
             temperature=0,
+            response_format=QueryRewrite,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You convert follow-up questions into standalone sermon database search queries. "
-                        "Output only the search query — no explanation, no punctuation beyond the query itself. "
-                        "If the question is already self-contained, return it unchanged."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"Conversation so far:\n{history_text}\n\nFollow-up: {message}",
-                },
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": f"Conversation so far:\n{history_text}\n\nUser message: {message}"},
             ],
         )
-        return response.choices[0].message.content.strip()
+        return response.choices[0].message.parsed
     except Exception as e:
         print(f"⚠️  Query rewrite failed ({e}); using original message.")
-        return message
+        return QueryRewrite(query=message, date_expression=None)
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -634,12 +853,55 @@ async def chat(req: ChatRequest):
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="Empty message")
 
-    # 1. Rewrite follow-up questions into standalone search queries, then retrieve
-    search_query = await rewrite_query_for_retrieval(req.message, req.history or [])
+    # 1. Rewrite query and extract date/year in one LLM call, then retrieve
+    rewrite = await rewrite_query_for_retrieval(req.message, req.history or [])
     source_filter = detect_source_filter(req.message, req.history)
-    chunks = retrieve_chunks(search_query, where=source_filter)
+
+    if rewrite.year:
+        # Whole-year: pre-filter in ChromaDB, no fallback to all years
+        year_where, date_hint = year_filter_from_year(rewrite.year)
+        combined_where = merge_where_filters(source_filter, year_where)
+        chunks = retrieve_chunks(rewrite.query, n=N_RESULTS_BROAD, where=combined_where, date_hint=date_hint)
+    elif rewrite.date_range:
+        # Week/month range: pre-filter in ChromaDB via date_numeric, fallback to unfiltered
+        date_range = resolve_date_range(rewrite.date_range)
+        if date_range:
+            range_flt, date_hint = date_range_filter(*date_range)
+            combined_where = merge_where_filters(source_filter, range_flt)
+            chunks = retrieve_chunks(rewrite.query, n=N_RESULTS_BROAD, where=combined_where, date_hint=date_hint)
+            if not chunks:
+                chunks = retrieve_chunks(rewrite.query, n=N_RESULTS_BROAD, where=source_filter, date_hint=date_hint)
+        else:
+            chunks = retrieve_chunks(rewrite.query, where=source_filter)
+    else:
+        # Specific day (or no date): try date filter, fall back to unfiltered
+        resolved_date = resolve_date_expression(rewrite.date_expression)
+        date_filter, date_hint = date_filter_from_date(resolved_date)
+        chunks = retrieve_chunks(
+            rewrite.query,
+            where=source_filter,
+            date_filter=date_filter,
+            date_hint=date_hint,
+        )
 
     if not chunks:
+        if rewrite.year:
+            return {
+                "answer": (
+                    f"I couldn't find any sermons or messages from {rewrite.year} in the database. "
+                    f"The collection may not have been updated with {rewrite.year} content yet — "
+                    "try asking about a specific topic without a year filter."
+                ),
+                "sources": []
+            }
+        if rewrite.date_range:
+            return {
+                "answer": (
+                    f"I couldn't find any sermons from '{rewrite.date_range}' in the database. "
+                    "The collection may not cover that period yet — try a broader time frame or different keywords."
+                ),
+                "sources": []
+            }
         return {
             "answer": "I couldn't find any relevant information in the sermon transcripts for your question. Try rephrasing or using different keywords.",
             "sources": []
