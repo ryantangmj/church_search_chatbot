@@ -6,3 +6,4 @@ chroma_db/
 venv/
 __pycache__/
 .env
+upload_to_hf.py
