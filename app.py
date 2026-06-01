@@ -37,9 +37,9 @@ CHROMA_DB_PATH  = os.getenv("CHROMA_DB_PATH", "./chroma_db")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "sermons")
 HF_DATASET_REPO = os.getenv("HF_DATASET_REPO", "")  # e.g. "yourname/church-chroma-db"
 HF_TOKEN        = os.getenv("HF_TOKEN", "")
-N_RESULTS           = 5   # default for specific questions
-N_RESULTS_BROAD     = 10  # for year/week/month range queries
-MIN_SEMANTIC_SCORE  = 0.25
+N_RESULTS           = 7   # default for specific questions
+N_RESULTS_BROAD     = 12  # for year/week/month range queries
+MIN_SEMANTIC_SCORE  = 0.35
 OPENAI_MODEL        = "gpt-4o"
 
 def _ensure_chroma_db():
@@ -363,6 +363,15 @@ EXPANSION_MAP = {
     "repentance": ["repent", "turning from sin", "changing", "transformation"],
     "grace": ["unmerited favor", "God's kindness", "divine favor"],
     "sanctification": ["holiness", "being made holy", "spiritual growth", "transformation"],
+    "obedience": ["obeying", "submitting", "following God's commands", "faithful living"],
+    "righteousness": ["righteous", "right standing with God", "justified", "justification"],
+    "discipleship": ["disciple", "following jesus", "commitment", "dedication"],
+    "humility": ["humble", "humbleness", "lowliness", "meekness"],
+    "word of god": ["scripture", "bible", "god's word", "the word"],
+    "kingdom": ["kingdom of god", "kingdom of heaven", "god's kingdom", "eternal kingdom"],
+    "suffering": ["trials", "tribulation", "hardship", "persecution", "endurance"],
+    "hope": ["hopeful", "expectation", "assurance", "confidence in God"],
+    "peace": ["peaceful", "shalom", "rest in God", "comfort"],
 }
 
 def expand_query(query: str) -> List[str]:
@@ -630,14 +639,11 @@ def _retrieve_chunks_core(query: str, n: int = N_RESULTS, where: dict | None = N
 
 
 def build_context(chunks: list[dict]) -> str:
-    """Build context string with source citations."""
     parts = []
     for i, c in enumerate(chunks, 1):
         label = f"[{i}] {c['date']} — {c['title']} ({c['chunk_type'].upper()})"
         if c["scripture_refs"]:
             label += f" | Scriptures: {c['scripture_refs']}"
-        if c.get("topics"):
-            label += f" | Topics: {c['topics']}"
         parts.append(f"{label}\n{c['text']}")
     return "\n\n---\n\n".join(parts)
 
@@ -673,69 +679,48 @@ def filter_and_renumber_citations(answer: str, chunks: list) -> tuple[str, list]
 
 GUARDRAIL_MODEL = "gpt-4o-mini"
 
-GUARDRAIL_PROMPT = """You are a strict guardrail for a church sermon chatbot. Your job is to review a draft answer and ensure it is:
-1. SAFE — appropriate, respectful, and on-topic for a church congregation. Not harmful, offensive, or misleading.
-2. GROUNDED — every factual claim must be a direct quote or clear paraphrase of the provided sermon excerpts. Logical inferences, theological elaborations, and anything "implied by" the text are NOT grounded — they must be explicitly stated in an excerpt.
+GUARDRAIL_PROMPT = """You are a guardrail for a church sermon chatbot. Review the draft answer for two things only:
 
-You will receive:
-- The user's question
-- The sermon excerpts used as context (numbered [1], [2], etc.)
-- The draft answer
+1. GROUNDED — every factual claim must be a direct quote or paraphrase from the provided sermon excerpts. Logical inferences and theological elaborations beyond what is explicitly stated are not grounded.
+2. SAFE — appropriate for a church congregation. Not harmful, offensive, or misleading.
 
-## Your Task
-Review the draft answer carefully. If it is both safe and fully grounded, return it unchanged.
-If there are problems, rewrite the answer to fix them:
-- Remove or correct any claims not supported by the excerpts.
-- Remove any harmful, offensive, or off-topic content.
-- Keep inline citations [1], [2], etc. intact and accurate.
-- Preserve the warm, pastoral tone.
-- If the answer cites the provided excerpts with [1], [2], etc. while acknowledging it couldn't fully answer the question, treat it as grounded — it is acceptable to say what was found and note it doesn't match the request.
-- If the answer cannot be fixed (e.g. it makes specific factual claims not in any excerpt), replace it with:
-  "I couldn't find reliable information on that in the sermon transcripts. Try rephrasing or using different keywords."
+Rules:
+- If the answer is grounded and safe, return it unchanged.
+- If there are problems, fix them with minimal changes — trim or correct specific ungrounded claims rather than rewriting the whole answer.
+- Preserve the original voice. Do NOT introduce phrases like "Based on the excerpts", "Certainly!", "I hope this helps", or any closing pleasantry.
+- Keep all citations [1], [2], etc. intact and accurate.
+- An answer that cites excerpts while honestly acknowledging it couldn't fully answer the question is grounded — do not rewrite it.
+- If the answer cannot be fixed (makes specific factual claims absent from all excerpts), replace it with: "I didn't find anything in the transcripts that directly covers that. Try rephrasing or using different keywords."
 
 Populate all four fields: safe, grounded, issues (empty list if none), and answer."""
 
 
-SYSTEM_PROMPT = """You are a warm, knowledgeable assistant for a church congregation.
-You help members search and understand sermon messages using an advanced retrieval system.
+SYSTEM_PROMPT = """You help members of a church congregation search and understand content from Seonsaengnim's sermon transcripts and Bible lesson notes. The archive covers 2023 to the present.
 
-You will be given relevant excerpts from sermon transcripts and bible lessons as context. Each excerpt includes:
-- Date and sermon title
-- Chunk type (SERMON, SCRIPTURE, 30 LESSONS, or VIDEO)
-- Scripture references (if applicable)
-- Key topics extracted from the content
+Seonsaengnim means "teacher" in Korean — he is the head pastor. Refer to him as "Seonsaengnim", "the teacher", or "the pastor".
 
-The retrieved excerpts are your ONLY source of truth — answer strictly from them.
+You have been given numbered excerpts from the archive. These are your only source. Do not draw on outside theological knowledge, even when you think you could add helpful context.
 
-## Core Rules
-- The retrieved excerpts are your ONLY source of truth. Your own theological training, biblical knowledge, and background understanding are NOT valid sources — treat them as if they do not exist.
-- A claim is only grounded if it is explicitly stated in an excerpt. Logical inferences, theological elaborations, and anything "implied by" or "consistent with" the text do not qualify.
-- If the context does not explicitly answer the question, you MUST still cite the retrieved excerpts with [1], [2], etc. and explain what they do cover. For example: "The excerpts I retrieved are from [sermon titles] [1][2], but they don't appear to cover [topic]. Try rephrasing or using different keywords."
-- Never say "I couldn't find information" without citing at least one retrieved excerpt to acknowledge what was found.
-- Do not combine or connect excerpts unless they explicitly reference the same topic or event.
-- Accuracy over completeness — an honest "I don't know" is always better than speculation.
+## Grounding (strict)
+- Only state things explicitly said in the excerpts. Inferences, elaborations, and anything "implied by" the text are not grounded — don't say them.
+- Cite inline with [1], [2], etc. right after the relevant statement, before punctuation.
+- If excerpts don't answer the question, cite what was found and acknowledge the gap honestly: "The messages I found — [title][1] — cover [X], not [Y]. You might try searching for [related term]."
+- Never say "I couldn't find information" without citing at least one excerpt to show what was retrieved.
+- If sources say different things, say so plainly — don't smooth it over.
 
-## Citation Requirements
-- ALWAYS use inline citations [1], [2], etc. to reference which excerpt you're drawing from.
-- Only use citation numbers that exist in the provided sources (e.g., if given 5 sources, only use [1] through [5]).
-- Place citations immediately after the relevant statement, before punctuation.
-- Multiple citations are allowed: "The pastor taught about prayer and fasting [1][3]." but try to keep it as lean as possible, if chunk 1 already contains the relevant information no need to add chunk 3 for example.
+## Voice and format
+- Write the way a knowledgeable church member would explain something to a fellow member — direct, natural, and conversational. Not a formal report.
+- Short answers for simple questions (2–4 sentences). Longer only if the topic genuinely requires it.
+- Prose over bullet points. No section headers (##, ###) in answers unless absolutely necessary.
+- Bold only scripture references (e.g. **Ephesians 4:22**) or a term Seonsaengnim specifically highlighted. Not for general emphasis.
+- Direct quotes from Seonsaengnim go in quotation marks.
+- Scripture references must be complete: **John 3:16**, not just "John 3".
 
-## Tone & Format
-- Be warm, pastoral, and encouraging — you are speaking to congregation members.
-- Be concise (2–4 sentences for simple questions). Elaborate for complex theological topics.
-- Use Markdown **bold** for emphasis on key spiritual concepts.
-- For scripture references, always include book, chapter, and verse.
-- Structure multi-part answers with clear sections.
-
-## Process
-- For multi-part questions, address each part in order.
-- If sources conflict, note: "The sermons present different perspectives on this..."
-- If coverage is partial, say: "Based on the excerpts, here's what the pastor addressed..."
-- Prioritize SERMON-type chunks when answering biblical interpretation questions.
-
-## Context
-- Seonsaengnim is referred to as teacher in korean and he is the head pastor of our church, the sermons are given by him and when referring to the pastor, you can call him "Seongsaengim" or "the teacher" or "SSN"."""
+## Phrases never to use
+- "Certainly!", "Great question!", "Absolutely!", "Of course!", "Sure!", "I'd be happy to"
+- "Based on the provided excerpts", "According to the transcripts", "The context shows", "The sermon excerpts indicate"
+- "I hope this helps", "Feel free to ask more", "Is there anything else I can help with?"
+- "As an AI" or any variation"""
 
 
 # ── Guardrail ──────────────────────────────────────────────────────────────────
@@ -922,9 +907,10 @@ async def chat(req: ChatRequest):
 
     # 4. Call OpenAI
     response = await openai_client.chat.completions.create(
-        model      = OPENAI_MODEL,
-        max_tokens = 1024,
-        messages   = messages,
+        model       = OPENAI_MODEL,
+        max_tokens  = 1024,
+        temperature = 0.3,
+        messages    = messages,
     )
 
     answer = response.choices[0].message.content
