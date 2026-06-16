@@ -105,7 +105,7 @@ def process_docs(filenames: list[str]) -> list[Path]:
 # ── Step 5: Chunk and embed cleaned files into ChromaDB ───────────────────────
 
 def embed_docs(txt_files: list[Path]):
-    from chunk_sermons import parse_file, build_chunks, ingest_to_chroma
+    from chunk_sermons import parse_file, build_chunks, ingest_to_chroma, backfill_day_of_week
 
     all_chunks = []
     for fpath in txt_files:
@@ -151,6 +151,11 @@ def upload_chroma():
 
 if __name__ == "__main__":
     download_chroma()
+
+    # One-time backfill: add day_of_week to chunks that predate the field
+    from chunk_sermons import backfill_day_of_week
+    backfill_day_of_week(COLLECTION_SERMONS, CHROMA_DB_PATH)
+
     already_embedded = get_embedded_filenames()
     new_files = scrape_new(already_embedded)
 

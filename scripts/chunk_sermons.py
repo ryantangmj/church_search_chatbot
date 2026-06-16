@@ -440,13 +440,16 @@ def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "
             _d = _dt.date.fromisoformat(chunk.date)
             year_int = _d.year
             date_numeric = _d.year * 10000 + _d.month * 100 + _d.day
+            day_of_week = _d.strftime('%A').lower()
         except (ValueError, TypeError):
             year_int = 0
             date_numeric = 0
+            day_of_week = ""
         metadatas.append({
             "date":           chunk.date,
             "year":           year_int,
             "date_numeric":   date_numeric,
+            "day_of_week":    day_of_week,
             "title":          chunk.title,
             "chunk_index":    chunk.chunk_index,
             "total_chunks":   chunk.total_chunks,
@@ -473,6 +476,46 @@ def ingest_to_chroma(chunks: list[Chunk], collection_name: str, db_path: str = "
     print()  # newline after progress
     print(f"✅  Ingested {len(chunks)} chunks into '{collection_name}' using nomic-embed-text-v1.5")
     return collection
+
+
+# ── Metadata backfill ──────────────────────────────────────────────────────────
+
+def backfill_day_of_week(collection_name: str, db_path: str = "./chroma_db"):
+    """Add day_of_week to existing chunks that were ingested before the field was added."""
+    import datetime as _dt
+    client = chromadb.PersistentClient(path=db_path)
+    try:
+        collection = client.get_collection(name=collection_name, embedding_function=NomicEmbeddingFunction())
+    except Exception as e:
+        print(f"⚠️  Could not open collection for backfill: {e}")
+        return
+
+    all_data = collection.get(include=["metadatas"])
+    ids_to_update, metas_to_update = [], []
+
+    for doc_id, meta in zip(all_data["ids"], all_data["metadatas"]):
+        if meta.get("day_of_week"):
+            continue
+        try:
+            d = _dt.date.fromisoformat(meta.get("date", ""))
+            dow = d.strftime('%A').lower()
+        except (ValueError, TypeError):
+            continue
+        ids_to_update.append(doc_id)
+        metas_to_update.append({**meta, "day_of_week": dow})
+
+    if not ids_to_update:
+        print("✅ day_of_week backfill: all chunks already up to date.")
+        return
+
+    print(f"⏳ Backfilling day_of_week for {len(ids_to_update)} chunks...")
+    batch_size = 100
+    for i in range(0, len(ids_to_update), batch_size):
+        collection.update(
+            ids=ids_to_update[i:i + batch_size],
+            metadatas=metas_to_update[i:i + batch_size],
+        )
+    print(f"✅ Backfilled {len(ids_to_update)} chunks.")
 
 
 # ── Query helper ────────────────────────────────────────────────────────────────
