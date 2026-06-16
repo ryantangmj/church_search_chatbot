@@ -152,11 +152,16 @@ def upload_chroma():
 if __name__ == "__main__":
     download_chroma()
 
+    # One-time backfill: add day_of_week to chunks that predate the field
+    from chunk_sermons import backfill_day_of_week
+    backfill_day_of_week(COLLECTION_SERMONS, CHROMA_DB_PATH)
+
     already_embedded = get_embedded_filenames()
     new_files = scrape_new(already_embedded)
 
     if not new_files:
-        print("\nNo new sermons found. Nothing to do.")
+        print("\nNo new sermons found — uploading backfilled ChromaDB.")
+        upload_chroma()
         sys.exit(0)
 
     cleaned = process_docs(new_files)
