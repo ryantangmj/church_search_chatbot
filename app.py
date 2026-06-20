@@ -1497,6 +1497,14 @@ async def chat(req: ChatRequest):
                 chunks = retrieve_chunks(rewrite.query, where=base_where, date_filter=date_flt, date_hint=date_hint, **retrieval_kwargs)
             else:
                 chunks = retrieve_chunks(rewrite.query, where=base_where, **retrieval_kwargs)
+        elif rewrite.recency == "latest" and not rewrite.day_of_week:
+            # Most recent sermon (any day): find most recent service date regardless of day
+            most_recent = most_recent_service_date()
+            date_flt, date_hint = date_filter_from_date(most_recent)
+            base_where = merge_where_filters(source_filter, dow_filter)
+            chunks = retrieve_chunks(rewrite.query, where=base_where, date_filter=date_flt, date_hint=date_hint, **retrieval_kwargs)
+            if not chunks:
+                chunks = retrieve_chunks(rewrite.query, where=base_where, **retrieval_kwargs)
         elif rewrite.recency == "last_n" and rewrite.day_of_week and rewrite.n:
             # Find the last N distinct dates for this day of week and cover that range
             latest_dates = get_latest_dates_for_dow(rewrite.day_of_week, rewrite.n)
