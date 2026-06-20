@@ -1398,6 +1398,11 @@ async def generate_query_paraphrases(query: str, n: int = 3) -> List[str]:
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @app.get("/api/stats")
 async def stats():
     collection = get_collection()
