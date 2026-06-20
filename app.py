@@ -1651,4 +1651,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def index():
-    return FileResponse("static/index.html")
+    try:
+        return FileResponse("static/index.html")
+    except Exception as e:
+        print(f"Error serving index.html: {e}", flush=True)
+        return {"error": str(e)}
