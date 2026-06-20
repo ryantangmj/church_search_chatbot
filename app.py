@@ -68,19 +68,22 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(_):
-    print("⏳ Loading embedding model...")
+    import sys
+    sys.stdout.flush()
+    print("⏳ Loading embedding model...", flush=True)
     _get_embed_model()
-    print("✅ Embedding model loaded.")
-    print("⏳ Building BM25 index...")
+    print("✅ Embedding model loaded.", flush=True)
+    print("⏳ Building BM25 index...", flush=True)
     get_bm25_index()
-    print("✅ BM25 index built.")
-    print("⏳ Loading reranker...")
+    print("✅ BM25 index built.", flush=True)
+    print("⏳ Loading reranker...", flush=True)
     get_reranker()
-    print("✅ Reranker loaded.")
-    print("⏳ Building scripture index...")
+    print("✅ Reranker loaded.", flush=True)
+    print("⏳ Building scripture index...", flush=True)
     get_scripture_index()
-    print("✅ Scripture index built.")
-    print("✅ All startup tasks complete!")
+    print("✅ Scripture index built.", flush=True)
+    print("✅ All startup tasks complete!", flush=True)
+    sys.stdout.flush()
     yield
 
 app = FastAPI(title="Church Sermon Chatbot", lifespan=lifespan)
